@@ -87,7 +87,7 @@ spline-verify/
 │   │   ├── base.py              # DynamicsModel protocol, TrajectoryBundle
 │   │   ├── integrators.py       # Numerical integrators (Euler, RK4, RK45, Adams)
 │   │   ├── ode.py               # ODE dynamics implementation
-│   │   ├── switching.py         # Switching dynamics (Phase 4 placeholder)
+│   │   ├── switching.py         # SwitchingDynamics, FilippovSolver
 │   │   └── trajectory.py        # Trajectory data structure
 │   ├── geometry/
 │   │   ├── __init__.py
@@ -98,12 +98,12 @@ spline-verify/
 │   │   ├── approximation.py     # 1D spline approximation
 │   │   ├── multivariate.py      # Scattered data spline fitting (RBF)
 │   │   ├── optimization.py      # Spline minimization
-│   │   └── piecewise.py         # Piecewise splines (Phase 4 placeholder)
+│   │   └── piecewise.py         # PiecewiseSplineApproximation for switching
 │   ├── verification/
 │   │   ├── __init__.py
 │   │   ├── error_bounds.py      # Error budget analysis
 │   │   ├── objective.py         # Objective function F_T computation
-│   │   ├── switching.py         # Switching verifier (Phase 4 placeholder)
+│   │   ├── switching.py         # SwitchingVerifier, region classifier
 │   │   └── verifier.py          # Main SafetyVerifier class
 │   └── utils/
 │       ├── __init__.py
@@ -112,11 +112,14 @@ spline-verify/
 │   ├── test_integrators.py      # Integrator tests
 │   ├── test_sets.py             # Geometry tests
 │   ├── test_splines.py          # Spline fitting tests
-│   └── test_verification.py     # Verification pipeline tests
+│   ├── test_verification.py     # ODE verification tests
+│   └── test_switching.py        # Switching system tests
 └── examples/
     ├── linear_system.py         # Linear ODE examples (SAFE/UNSAFE)
     ├── harmonic_oscillator.py   # Periodic orbit examples
-    └── bouncing_ball.py         # Switching system placeholder
+    ├── bouncing_ball.py         # Bouncing ball (event-driven switching)
+    ├── relay_feedback.py        # Relay feedback (sliding mode)
+    └── thermostat.py            # Thermostat (hysteresis switching)
 ```
 
 ## Verification Results
@@ -190,17 +193,32 @@ python examples/bouncing_ball.py --save --outdir ./figs
 - **ObjectiveSampler**: Sample F_T over initial set
 - **ErrorBudget**: Track error sources
 
-## Phase 4: Switching Systems (Placeholder)
+## Switching Systems (Phase 4)
 
-The architecture supports extension to switching systems with:
-- Filippov differential inclusions for state-based switching
-- Piecewise spline approximation for discontinuous F_T
-- SVM-based region classification
+Full support for switching/hybrid systems with Filippov handling:
 
-Placeholder implementations are in:
-- `src/spline_verify/dynamics/switching.py`
-- `src/spline_verify/splines/piecewise.py`
-- `src/spline_verify/verification/switching.py`
+```python
+from spline_verify.dynamics import SwitchingDynamics, FilippovSolver
+from spline_verify.verification import SwitchingVerifier
+
+# Create switching dynamics (relay feedback: dx/dt = -sign(x))
+dynamics = SwitchingDynamics.relay_feedback()
+
+# Or bouncing ball, thermostat, etc.
+# dynamics = SwitchingDynamics.bouncing_ball(gravity=9.81, restitution=0.9)
+# dynamics = SwitchingDynamics.thermostat(T_low=18.0, T_high=22.0, T_ambient=10.0)
+
+# Verify with switching-aware verifier
+verifier = SwitchingVerifier(n_samples=100, seed=42)
+result = verifier.verify(dynamics, initial_set, unsafe_set, T)
+```
+
+**Features:**
+- `SwitchingSurface`: Explicit boundary functions with normals
+- `FilippovSolver`: Handles sliding modes and set-valued dynamics
+- `SwitchingRegionClassifier`: SVM-based classification of initial conditions
+- `PiecewiseSplineApproximation`: Per-region spline fitting for discontinuous F_T
+- Automatic crossing label extraction from trajectory bundles
 
 ## References
 
