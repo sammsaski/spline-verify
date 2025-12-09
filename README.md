@@ -1,4 +1,4 @@
-# Spline-Verify
+# spline-verify
 
 Safety verification for cyber-physical systems via spline approximation of objective functions.
 
