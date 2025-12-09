@@ -108,18 +108,24 @@ spline-verify/
 │   └── utils/
 │       ├── __init__.py
 │       └── visualization.py     # Plotting utilities
-├── tests/
-│   ├── test_integrators.py      # Integrator tests
-│   ├── test_sets.py             # Geometry tests
-│   ├── test_splines.py          # Spline fitting tests
-│   ├── test_verification.py     # ODE verification tests
-│   └── test_switching.py        # Switching system tests
-└── examples/
-    ├── linear_system.py         # Linear ODE examples (SAFE/UNSAFE)
-    ├── harmonic_oscillator.py   # Periodic orbit examples
-    ├── bouncing_ball.py         # Bouncing ball (event-driven switching)
-    ├── relay_feedback.py        # Relay feedback (sliding mode)
-    └── thermostat.py            # Thermostat (hysteresis switching)
+├── examples/
+│   ├── EXAMPLES.md              # Detailed examples documentation
+│   ├── linear_system.py         # Linear ODE examples (SAFE/UNSAFE)
+│   ├── harmonic_oscillator.py   # Periodic orbit examples
+│   ├── bouncing_ball.py         # Bouncing ball (event-driven switching)
+│   ├── relay_feedback.py        # Relay feedback (sliding mode)
+│   ├── thermostat.py            # Thermostat (hysteresis switching)
+│   ├── vehicle_braking.py       # Emergency braking (case study)
+│   ├── quadrotor.py             # Altitude control (case study)
+│   ├── glucose_insulin.py       # Blood glucose regulation (case study)
+│   └── demonstration.py         # Full pipeline visualization
+└── tests/
+    ├── test_integrators.py      # Integrator tests
+    ├── test_sets.py             # Geometry tests
+    ├── test_splines.py          # Spline fitting tests
+    ├── test_verification.py     # ODE verification tests
+    ├── test_switching.py        # Switching system tests
+    └── test_benchmarks.py       # Benchmark infrastructure tests
 ```
 
 ## Verification Results
@@ -148,21 +154,25 @@ pytest tests/test_verification.py -v
 All examples support optional figure saving for headless environments:
 
 ```bash
-# Linear system examples (run only)
-python examples/linear_system.py
+# ODE examples
+python examples/linear_system.py --save --outdir ./examples/figs
+python examples/harmonic_oscillator.py --save --outdir ./examples/figs
 
-# Save figures to current directory
-python examples/linear_system.py --save
+# Switching system examples
+python examples/bouncing_ball.py --save --outdir ./examples/figs
+python examples/relay_feedback.py --save --outdir ./examples/figs
+python examples/thermostat.py --save --outdir ./examples/figs
 
-# Save figures to specific directory
-python examples/linear_system.py --save --outdir ./figs
+# Case studies (realistic applications)
+python examples/vehicle_braking.py --save --outdir ./examples/figs/case_study
+python examples/quadrotor.py --save --outdir ./examples/figs/case_study
+python examples/glucose_insulin.py --save --outdir ./examples/figs/case_study
 
-# Harmonic oscillator examples
-python examples/harmonic_oscillator.py --save --outdir ./figs
-
-# Bouncing ball (switching system placeholder)
-python examples/bouncing_ball.py --save --outdir ./figs
+# Demonstration tutorial (generates all pipeline figures)
+python examples/demonstration.py --save --outdir ./examples/figs/demo
 ```
+
+See [examples/EXAMPLES.md](examples/EXAMPLES.md) for detailed documentation of all examples.
 
 ## Core Components
 
@@ -219,6 +229,65 @@ result = verifier.verify(dynamics, initial_set, unsafe_set, T)
 - `SwitchingRegionClassifier`: SVM-based classification of initial conditions
 - `PiecewiseSplineApproximation`: Per-region spline fitting for discontinuous F_T
 - Automatic crossing label extraction from trajectory bundles
+
+## Case Studies
+
+Three realistic case studies demonstrate spline-verify on practical safety-critical systems:
+
+### Vehicle Braking (Collision Avoidance)
+
+```python
+# 3D state: position, velocity, acceleration
+# Verifies emergency braking can prevent collision
+python examples/vehicle_braking.py --save --outdir ./examples/figs/case_study
+```
+
+- **SAFE case**: Vehicle at 80-90m, speed 25-28 m/s, T=6s → Successfully brakes
+- **UNSAFE case**: Brake failure at close range → Collision unavoidable
+
+### Quadrotor Altitude Control
+
+```python
+# 2D state: altitude, vertical velocity
+# Verifies altitude control prevents ground collision
+python examples/quadrotor.py --save --outdir ./examples/figs/case_study
+```
+
+- **SAFE case**: PD-controlled hover maintains altitude above ground
+- **UNSAFE case**: Motor failure leads to free-fall ground impact
+
+### Glucose-Insulin Regulation
+
+```python
+# 2D state: blood glucose, plasma insulin
+# Verifies glucose stays in safe physiological range
+python examples/glucose_insulin.py --save --outdir ./examples/figs/case_study
+```
+
+- **SAFE case**: Fasting glucose regulation prevents hypoglycemia
+- **UNSAFE case**: Large meal without insulin causes severe hyperglycemia
+
+## Benchmarking
+
+The benchmark infrastructure validates verification accuracy and analyzes performance:
+
+```python
+from spline_verify.benchmarks import BenchmarkRunner, GroundTruthValidator
+
+# Run ground truth validation against analytical solutions
+validator = GroundTruthValidator()
+results = validator.validate_linear_systems()
+
+# Analyze scalability across dimensions and sample counts
+from spline_verify.benchmarks import ScalabilityAnalyzer
+analyzer = ScalabilityAnalyzer()
+results = analyzer.analyze_dimension_scaling(max_dim=8)
+```
+
+Run all benchmarks:
+```bash
+pytest tests/test_benchmarks.py -v
+```
 
 ## References
 
