@@ -1,0 +1,474 @@
+{
+  "ground_truth": {
+    "n_systems": 7,
+    "n_correct": 7,
+    "n_incorrect": 0,
+    "accuracy": 1.0,
+    "total_time": 2.325859956210479,
+    "details": [
+      {
+        "name": "stable_spiral_safe",
+        "ground_truth": "SAFE",
+        "computed": "SAFE",
+        "correct": true,
+        "exact_min_distance": 1.6155277699214134,
+        "computed_min_objective": 1.6158460471408673,
+        "approximation_error": 0.00031827721945387744,
+        "relative_error": 0.0001970112958623793
+      },
+      {
+        "name": "stable_spiral_unsafe",
+        "ground_truth": "UNSAFE",
+        "computed": "UNSAFE",
+        "correct": true,
+        "exact_min_distance": 0.0,
+        "computed_min_objective": 0.0,
+        "approximation_error": 0.0,
+        "relative_error": 0.0
+      },
+      {
+        "name": "fast_decay_safe",
+        "ground_truth": "UNSAFE",
+        "computed": "UNSAFE",
+        "correct": true,
+        "exact_min_distance": 0.0,
+        "computed_min_objective": 0.0,
+        "approximation_error": 0.0,
+        "relative_error": 0.0
+      },
+      {
+        "name": "slow_decay_unsafe",
+        "ground_truth": "UNSAFE",
+        "computed": "UNSAFE",
+        "correct": true,
+        "exact_min_distance": 0.0,
+        "computed_min_objective": 0.0,
+        "approximation_error": 0.0,
+        "relative_error": 0.0
+      },
+      {
+        "name": "harmonic_small_orbit_safe",
+        "ground_truth": "SAFE",
+        "computed": "SAFE",
+        "correct": true,
+        "exact_min_distance": 1.2835215436271816,
+        "computed_min_objective": 1.284530804928377,
+        "approximation_error": 0.0010092613011953855,
+        "relative_error": 0.0007863220576284622
+      },
+      {
+        "name": "harmonic_large_orbit_unsafe",
+        "ground_truth": "UNSAFE",
+        "computed": "UNSAFE",
+        "correct": true,
+        "exact_min_distance": 0.0,
+        "computed_min_objective": 0.0,
+        "approximation_error": 0.0,
+        "relative_error": 0.0
+      },
+      {
+        "name": "harmonic_high_freq_safe",
+        "ground_truth": "SAFE",
+        "computed": "SAFE",
+        "correct": true,
+        "exact_min_distance": 0.9992069000890653,
+        "computed_min_objective": 0.9999281982203903,
+        "approximation_error": 0.0007212981313249323,
+        "relative_error": 0.0007218706468706717
+      }
+    ]
+  },
+  "scalability": {
+    "dimension": {
+      "dimensions": [
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8
+      ],
+      "times": [
+        0.08078125189058483,
+        0.08300332492217422,
+        0.0958415288478136,
+        0.09569334797561169,
+        0.09679094702005386,
+        0.09818313084542751,
+        0.09950412507168949
+      ],
+      "statuses": [
+        "SAFE",
+        "SAFE",
+        "SAFE",
+        "SAFE",
+        "SAFE",
+        "SAFE",
+        "SAFE"
+      ]
+    },
+    "samples": {
+      "counts": [
+        50,
+        100,
+        200,
+        800
+      ],
+      "times": [
+        0.04582106904126704,
+        0.08439595089294016,
+        0.1442645131610334,
+        0.5547940519172698
+      ],
+      "min_objectives": [
+        0.48216256243844063,
+        0.4823298114069069,
+        0.48064179655332673,
+        0.4805717876967348
+      ]
+    }
+  },
+  "sensitivity": {
+    "sampling": {
+      "parameters": [
+        {
+          "n_samples": 50,
+          "sampling_strategy": "uniform"
+        },
+        {
+          "n_samples": 50,
+          "sampling_strategy": "latin_hypercube"
+        },
+        {
+          "n_samples": 50,
+          "sampling_strategy": "sobol"
+        },
+        {
+          "n_samples": 50,
+          "sampling_strategy": "halton"
+        },
+        {
+          "n_samples": 100,
+          "sampling_strategy": "uniform"
+        },
+        {
+          "n_samples": 100,
+          "sampling_strategy": "latin_hypercube"
+        },
+        {
+          "n_samples": 100,
+          "sampling_strategy": "sobol"
+        },
+        {
+          "n_samples": 100,
+          "sampling_strategy": "halton"
+        },
+        {
+          "n_samples": 200,
+          "sampling_strategy": "uniform"
+        },
+        {
+          "n_samples": 200,
+          "sampling_strategy": "latin_hypercube"
+        },
+        {
+          "n_samples": 200,
+          "sampling_strategy": "sobol"
+        },
+        {
+          "n_samples": 200,
+          "sampling_strategy": "halton"
+        }
+      ],
+      "min_objectives": [
+        0.4810004324470153,
+        0.4821630162433528,
+        0.4806721919429007,
+        0.4808913159046556,
+        0.48105473940762267,
+        0.48233027562447256,
+        0.48069250859195395,
+        0.4809189491104493,
+        0.4809630405742521,
+        0.4806422587696315,
+        0.48069876297938746,
+        0.4808518071890599
+      ],
+      "times": [
+        0.06626074202358723,
+        0.06740514794364572,
+        0.08509190194308758,
+        0.06880207103677094,
+        0.12404730496928096,
+        0.1258562719449401,
+        0.12302897591143847,
+        0.12757550296373665,
+        0.23118543811142445,
+        0.23088530101813376,
+        0.23000997607596219,
+        0.23332829703576863
+      ]
+    },
+    "spline": {
+      "parameters": [
+        {
+          "kernel": "thin_plate_spline",
+          "smoothing": 0.0
+        },
+        {
+          "kernel": "thin_plate_spline",
+          "smoothing": 0.01
+        },
+        {
+          "kernel": "thin_plate_spline",
+          "smoothing": 0.1
+        },
+        {
+          "kernel": "multiquadric",
+          "smoothing": 0.0
+        },
+        {
+          "kernel": "multiquadric",
+          "smoothing": 0.01
+        },
+        {
+          "kernel": "multiquadric",
+          "smoothing": 0.1
+        },
+        {
+          "kernel": "inverse_multiquadric",
+          "smoothing": 0.0
+        },
+        {
+          "kernel": "inverse_multiquadric",
+          "smoothing": 0.01
+        },
+        {
+          "kernel": "inverse_multiquadric",
+          "smoothing": 0.1
+        },
+        {
+          "kernel": "gaussian",
+          "smoothing": 0.0
+        },
+        {
+          "kernel": "gaussian",
+          "smoothing": 0.01
+        },
+        {
+          "kernel": "gaussian",
+          "smoothing": 0.1
+        }
+      ],
+      "min_objectives": [
+        0.48233027562447256,
+        0.48233027562447256,
+        0.48233027562447256,
+        0.48233027562447256,
+        0.48233027562447256,
+        0.48233027562447256,
+        0.48233027562447256,
+        0.48233027562447256,
+        0.48233027562447256,
+        0.48233027562447256,
+        0.48233027562447256,
+        0.48233027562447256
+      ],
+      "error_bounds": [
+        0.0518631727707632,
+        0.0518631727707632,
+        0.0518631727707632,
+        0.0518631727707632,
+        0.0518631727707632,
+        0.0518631727707632,
+        0.0518631727707632,
+        0.0518631727707632,
+        0.0518631727707632,
+        0.0518631727707632,
+        0.0518631727707632,
+        0.0518631727707632
+      ]
+    }
+  },
+  "ablation": {
+    "sampling": {
+      "problems": [
+        "diagonal_4d",
+        "van_der_pol_2d",
+        "lorenz_3d"
+      ],
+      "baseline_mins": [
+        0.5596915243327056,
+        0.0945116738011792,
+        11.3357271619884
+      ],
+      "n_variants": [
+        3,
+        3,
+        3
+      ]
+    },
+    "spline_method": {
+      "problems": [
+        "van_der_pol_2d"
+      ],
+      "baseline_mins": [
+        0.0945116738011792
+      ],
+      "n_variants": [
+        2
+      ]
+    },
+    "sample_count": {
+      "problems": [
+        "diagonal_4d",
+        "van_der_pol_2d"
+      ],
+      "baseline_mins": [
+        0.5596915243327056,
+        0.0945116738011792
+      ],
+      "n_variants": [
+        3,
+        3
+      ]
+    },
+    "optimization": {
+      "problems": [
+        "diagonal_4d",
+        "van_der_pol_2d"
+      ],
+      "baseline_mins": [
+        0.5596915243327056,
+        0.0945116738011792
+      ],
+      "n_variants": [
+        1,
+        1
+      ]
+    }
+  },
+  "standard_benchmarks": {
+    "diagonal_4d": {
+      "n_dims": 4,
+      "time_horizon": 3.0,
+      "n_samples": 200,
+      "status": "SAFE",
+      "min_objective": 0.560543165931068,
+      "error_bound": 0.06047662651145906,
+      "runtime": 0.18597821495495737
+    },
+    "oscillator_4d": {
+      "n_dims": 4,
+      "time_horizon": 5.0,
+      "n_samples": 200,
+      "status": "SAFE",
+      "min_objective": 1.2962103446300195,
+      "error_bound": 0.15932718145442917,
+      "runtime": 0.5337292749900371
+    },
+    "van_der_pol_2d": {
+      "n_dims": 2,
+      "time_horizon": 10.0,
+      "n_samples": 200,
+      "status": "SAFE",
+      "min_objective": 0.09367774733853605,
+      "error_bound": 0.024891502744012913,
+      "runtime": 1.1258076240774244
+    },
+    "lorenz_3d": {
+      "n_dims": 3,
+      "time_horizon": 5.0,
+      "n_samples": 200,
+      "status": "SAFE",
+      "min_objective": 11.338647316576418,
+      "error_bound": 0.36902887397611317,
+      "runtime": 1.710715414956212
+    },
+    "diagonal_6d": {
+      "n_dims": 6,
+      "time_horizon": 2.0,
+      "n_samples": 200,
+      "status": "SAFE",
+      "min_objective": 1.2846510479816236,
+      "error_bound": 0.13207748013183707,
+      "runtime": 0.14057038305327296
+    },
+    "_summary": {
+      "total_time": 3.6970597780309618,
+      "n_problems": 5,
+      "n_successful": 5
+    }
+  },
+  "hard_benchmarks": {
+    "coupled_8d": {
+      "n_dims": 8,
+      "time_horizon": 15.0,
+      "n_samples": 400,
+      "status": "SAFE",
+      "min_objective": 1.018244953525229,
+      "error_bound": 0.21996675370680246,
+      "runtime": 3.531187013955787
+    },
+    "diagonal_10d": {
+      "n_dims": 10,
+      "time_horizon": 10.0,
+      "n_samples": 400,
+      "status": "SAFE",
+      "min_objective": 1.1135475793405467,
+      "error_bound": 0.1919083850882029,
+      "runtime": 1.2317447140812874
+    },
+    "stiff_vdp_2d": {
+      "n_dims": 2,
+      "time_horizon": 20.0,
+      "n_samples": 400,
+      "status": "SAFE",
+      "min_objective": 0.17836978658837835,
+      "error_bound": 0.00029709884004553566,
+      "runtime": 9.11029105912894
+    },
+    "rossler_3d": {
+      "n_dims": 3,
+      "time_horizon": 50.0,
+      "n_samples": 400,
+      "status": "UNSAFE",
+      "min_objective": -2.57922692508425,
+      "error_bound": 6.906311038745199,
+      "runtime": 16.156425102846697
+    },
+    "double_pendulum_4d": {
+      "n_dims": 4,
+      "time_horizon": 10.0,
+      "n_samples": 400,
+      "status": "SAFE",
+      "min_objective": 3.196357685300779,
+      "error_bound": 0.08527348156875118,
+      "runtime": 16.536836583865806
+    },
+    "lotka_volterra_4d": {
+      "n_dims": 4,
+      "time_horizon": 20.0,
+      "n_samples": 400,
+      "status": "SAFE",
+      "min_objective": 2.156677664422496,
+      "error_bound": 0.8542032863620259,
+      "runtime": 2.5387942700181156
+    },
+    "neural_net_6d": {
+      "n_dims": 6,
+      "time_horizon": 10.0,
+      "n_samples": 400,
+      "status": "SAFE",
+      "min_objective": 0.43549015730283874,
+      "error_bound": 0.41572005760877234,
+      "runtime": 1.4983966490253806
+    },
+    "_summary": {
+      "total_time": 50.6041163969785,
+      "n_problems": 7,
+      "n_successful": 7
+    }
+  }
+}

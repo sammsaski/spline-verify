@@ -2,6 +2,7 @@
 
 from .approximation import SplineApproximation
 from .multivariate import MultivariateSpline, ScatteredDataSpline
+from .bspline import GriddedBSpline, create_spline_approximation
 from .optimization import minimize_spline, MinimizationResult
 from .piecewise import PiecewiseSplineApproximation, RegionInfo
 
@@ -11,6 +12,9 @@ __all__ = [
     # Multivariate splines
     "MultivariateSpline",
     "ScatteredDataSpline",
+    # B-splines for 1D/2D
+    "GriddedBSpline",
+    "create_spline_approximation",
     # Piecewise splines for switching systems
     "PiecewiseSplineApproximation",
     "RegionInfo",

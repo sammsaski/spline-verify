@@ -37,6 +37,12 @@ source venv/bin/activate  # On Windows: venv\Scripts\activate
 
 # Install package with dependencies
 pip install -e ".[dev]"
+
+# Optional: Install SDP solvers for Miller-Sznaier comparison
+pip install -e ".[sdp]"
+
+# Or install everything
+pip install -e ".[all]"
 ```
 
 ## Quick Start
@@ -96,6 +102,7 @@ spline-verify/
 │   ├── splines/
 │   │   ├── __init__.py
 │   │   ├── approximation.py     # 1D spline approximation
+│   │   ├── bspline.py           # Tensor-product B-splines for 1D/2D
 │   │   ├── multivariate.py      # Scattered data spline fitting (RBF)
 │   │   ├── optimization.py      # Spline minimization
 │   │   └── piecewise.py         # PiecewiseSplineApproximation for switching
@@ -105,9 +112,27 @@ spline-verify/
 │   │   ├── objective.py         # Objective function F_T computation
 │   │   ├── switching.py         # SwitchingVerifier, region classifier
 │   │   └── verifier.py          # Main SafetyVerifier class
+│   ├── benchmarks/
+│   │   ├── __init__.py
+│   │   ├── runner.py            # BenchmarkRunner infrastructure
+│   │   ├── ground_truth.py      # Ground truth validation
+│   │   ├── scalability.py       # Dimension/sample scaling analysis
+│   │   ├── sensitivity.py       # Parameter sensitivity analysis
+│   │   └── ablation.py          # Ablation study framework
 │   └── utils/
 │       ├── __init__.py
 │       └── visualization.py     # Plotting utilities
+├── src/miller_sznaier/          # Miller & Sznaier SDP-based comparison
+│   ├── __init__.py
+│   ├── problem.py               # UnsafeSupport problem definition
+│   ├── distance_estimator.py    # SDP-based distance estimation
+│   └── examples/
+│       ├── flow_system.py       # Flow system example
+│       └── comparison.py        # Method comparison framework
+├── scripts/
+│   ├── README.md                # Experiment documentation
+│   ├── run_benchmarks.py        # Full benchmark suite
+│   └── run_comparison.py        # Spline-verify vs Miller-Sznaier comparison
 ├── examples/
 │   ├── EXAMPLES.md              # Detailed examples documentation
 │   ├── linear_system.py         # Linear ODE examples (SAFE/UNSAFE)
@@ -135,19 +160,6 @@ The verifier returns one of three statuses:
 - **SAFE**: Proven safe (min F_T > error_bound)
 - **UNSAFE**: Found counterexample (trajectory reaches unsafe set)
 - **UNKNOWN**: Cannot certify (0 < min F_T ≤ error_bound)
-
-## Running Tests
-
-```bash
-# Run all tests
-pytest tests/
-
-# Run with verbose output
-pytest tests/ -v
-
-# Run specific test file
-pytest tests/test_verification.py -v
-```
 
 ## Running Examples
 
@@ -194,8 +206,21 @@ See [examples/EXAMPLES.md](examples/EXAMPLES.md) for detailed documentation of a
 ### Splines (`spline_verify.splines`)
 
 - **ScatteredDataSpline**: RBF-based multivariate interpolation
+- **GriddedBSpline**: Tensor-product B-splines for 1D/2D data
 - **SplineApproximation**: 1D B-spline fitting
 - **minimize_spline**: Multi-start L-BFGS-B optimization
+
+The verifier supports multiple spline methods:
+```python
+# RBF-based (default, works for any dimension)
+verifier = SafetyVerifier(spline_method='rbf')
+
+# B-spline (1D/2D only, better for gridded data)
+verifier = SafetyVerifier(spline_method='bspline', n_grid_points=50)
+
+# Auto-select (B-spline for 1D/2D, RBF for higher dimensions)
+verifier = SafetyVerifier(spline_method='auto')
+```
 
 ### Verification (`spline_verify.verification`)
 
@@ -284,8 +309,88 @@ analyzer = ScalabilityAnalyzer()
 results = analyzer.analyze_dimension_scaling(max_dim=8)
 ```
 
+### Ablation Studies
+
+Systematic ablation studies isolate each pipeline component's contribution:
+
+```python
+from spline_verify.benchmarks.ablation import AblationStudy
+
+study = AblationStudy()
+
+# Compare integrators: Euler vs RK4 vs RK45
+integrator_results = study.run_integrator_ablation()
+
+# Compare sampling: uniform vs Latin hypercube vs Sobol
+sampling_results = study.run_sampling_ablation()
+
+# Compare spline methods: RBF vs B-spline (1D/2D only)
+spline_results = study.run_spline_ablation()
+
+# Study convergence with sample count
+sample_results = study.run_sample_count_ablation()
+
+# Run all ablation studies (~10 min runtime)
+all_results = study.run_full_ablation()
+```
+
 Run all benchmarks:
 ```bash
+pytest tests/test_benchmarks.py -v
+```
+
+## Miller & Sznaier Comparison
+
+For comparison, we implement the SDP-based distance estimation from Miller & Sznaier's
+"Bounding the Distance to Unsafe Sets with Convex Optimization" (IEEE TAC 2023).
+
+**Note**: Requires optional SDP dependencies: `pip install cvxpy scs`
+
+```python
+from miller_sznaier import DistanceEstimator
+from miller_sznaier.problem import create_flow_system
+
+# Create the Flow system example from the paper
+problem = create_flow_system(time_horizon=5.0)
+
+# Estimate distance bounds via SDP
+estimator = DistanceEstimator(order=4)
+result = estimator.estimate(problem, compute_upper_bound=True)
+
+print(f"Lower bound (certified): {result.lower_bound:.6f}")
+print(f"Upper bound (sampled):   {result.upper_bound:.6f}")
+```
+
+### Side-by-Side Comparison
+
+```python
+from miller_sznaier.examples.comparison import compare_methods, run_comparison_suite
+
+# Compare spline-verify vs Miller-Sznaier on the same problem
+result = compare_methods(problem, problem_name="flow_2d")
+print(result.summary())
+
+# Run comparison on multiple standard problems
+results = run_comparison_suite(verbose=True)
+```
+
+**Key differences:**
+- **Spline-Verify**: Sample-based spline approximation → upper bounds
+- **Miller-Sznaier**: Occupation measure SDP relaxation → lower bounds
+- The gap between bounds indicates estimation uncertainty
+
+## Running Tests
+
+```bash
+# Activate conda environment
+conda activate spline-verify
+
+# Run all tests (113 tests)
+pytest tests/ -v
+
+# Run specific test files
+pytest tests/test_verification.py -v
+pytest tests/test_switching.py -v
 pytest tests/test_benchmarks.py -v
 ```
 
@@ -294,3 +399,4 @@ pytest tests/test_benchmarks.py -v
 - Schumaker, "Spline Functions: Basic Theory" (Cambridge, 2007)
 - Filippov, "Differential Equations with Discontinuous Righthand Sides" (Springer, 1988)
 - de Boor, "A Practical Guide to Splines" (Springer, 2001)
+- Miller & Sznaier, "Bounding the Distance to Unsafe Sets with Convex Optimization" (IEEE TAC, 2023)

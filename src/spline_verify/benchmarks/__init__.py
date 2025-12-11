@@ -5,6 +5,7 @@ This module provides tools for:
 - Validating against ground truth (analytical solutions)
 - Analyzing scalability (dimension, samples, time horizon)
 - Sensitivity analysis (parameter sweeps)
+- Ablation studies (component-wise impact analysis)
 """
 
 from .runner import (
@@ -39,6 +40,26 @@ from .sensitivity import (
     run_sampling_sensitivity,
     run_spline_sensitivity,
 )
+from .ablation import (
+    AblationResult,
+    AblationStudy,
+    create_diagonal_decay_4d,
+    create_coupled_oscillator_4d,
+    create_van_der_pol_2d,
+    create_lorenz_like_3d,
+    create_high_dim_diagonal_6d,
+    get_ablation_problems,
+    run_full_ablation_study,
+    # Harder benchmarks
+    get_hard_benchmark_problems,
+    create_high_dim_coupled_8d,
+    create_high_dim_diagonal_10d,
+    create_stiff_vanderpol_2d,
+    create_rossler_3d,
+    create_double_pendulum_4d,
+    create_lotka_volterra_4d,
+    create_neural_network_6d,
+)
 
 __all__ = [
     # Runner
@@ -69,4 +90,14 @@ __all__ = [
     'create_comprehensive_sweep',
     'run_sampling_sensitivity',
     'run_spline_sensitivity',
+    # Ablation
+    'AblationResult',
+    'AblationStudy',
+    'create_diagonal_decay_4d',
+    'create_coupled_oscillator_4d',
+    'create_van_der_pol_2d',
+    'create_lorenz_like_3d',
+    'create_high_dim_diagonal_6d',
+    'get_ablation_problems',
+    'run_full_ablation_study',
 ]

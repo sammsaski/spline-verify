@@ -23,9 +23,18 @@ dependencies = [
 dev = [
     "pytest>=7.0",
 ]
+sdp = [
+    "cvxpy>=1.4",
+    "scs>=3.0",
+]
+all = [
+    "pytest>=7.0",
+    "cvxpy>=1.4",
+    "scs>=3.0",
+]
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/spline_verify"]
+packages = ["src/spline_verify", "src/miller_sznaier"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

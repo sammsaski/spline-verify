@@ -12,6 +12,7 @@ from ..dynamics.base import DynamicsModel
 from ..geometry.sets import Set, HyperRectangle
 from ..geometry.sampling import sample_set, SamplingStrategy
 from ..splines.multivariate import ScatteredDataSpline, fit_objective_spline
+from ..splines.bspline import GriddedBSpline, create_spline_approximation
 from ..splines.optimization import minimize_spline, MinimizationResult
 from .objective import ObjectiveSampler, SampledObjective, compute_objective_bundle
 from .error_bounds import ErrorBudget
@@ -98,8 +99,13 @@ class SafetyVerifier:
     seed: int | None = None
 
     # Spline parameters
+    spline_method: str = 'rbf'  # 'rbf', 'bspline', or 'auto'
     spline_kernel: str = 'thin_plate_spline'
     spline_smoothing: float = 0.0
+    # B-spline specific parameters
+    n_grid_points: int = 50
+    bspline_degree: int = 3
+    grid_method: str = 'linear'  # 'linear', 'nearest', or 'rbf'
 
     # Optimization parameters
     optimization_method: str = 'multistart'
@@ -157,10 +163,30 @@ class SafetyVerifier:
             )
 
         # Step 2: Fit spline approximation
-        spline = ScatteredDataSpline(
-            kernel=kwargs.get('spline_kernel', self.spline_kernel),
-            smoothing=kwargs.get('spline_smoothing', self.spline_smoothing)
-        )
+        spline_method = kwargs.get('spline_method', self.spline_method)
+        n_dims = points.shape[1]
+
+        if spline_method == 'rbf' or (spline_method in ('bspline', 'auto') and n_dims > 2):
+            # Use RBF for high dimensions or when explicitly requested
+            if spline_method == 'bspline' and n_dims > 2:
+                import warnings
+                warnings.warn(
+                    f"B-spline only supports 1D/2D (got {n_dims}D). "
+                    "Falling back to RBF interpolation."
+                )
+            spline = ScatteredDataSpline(
+                kernel=kwargs.get('spline_kernel', self.spline_kernel),
+                smoothing=kwargs.get('spline_smoothing', self.spline_smoothing)
+            )
+        else:
+            # Use B-spline for 1D/2D
+            spline = GriddedBSpline(
+                n_grid_points=kwargs.get('n_grid_points', self.n_grid_points),
+                degree=kwargs.get('bspline_degree', self.bspline_degree),
+                smoothing=kwargs.get('spline_smoothing', self.spline_smoothing),
+                grid_method=kwargs.get('grid_method', self.grid_method)
+            )
+
         spline.fit(points, values)
 
         # Step 3: Minimize spline
@@ -219,6 +245,7 @@ class SafetyVerifier:
             counterexample=counterexample,
             details={
                 'n_samples': n_samples,
+                'spline_method': 'bspline' if isinstance(spline, GriddedBSpline) else 'rbf',
                 'sampled_min': sampled.min_value,
                 'sampled_max': sampled.max_value,
                 'optimization_evals': min_result.n_evaluations,

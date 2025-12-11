@@ -1,0 +1,72 @@
+{
+  "hard_benchmarks": {
+    "coupled_8d": {
+      "n_dims": 8,
+      "time_horizon": 15.0,
+      "n_samples": 1000,
+      "status": "SAFE",
+      "min_objective": 1.0158259670045604,
+      "error_bound": 0.2057546319101566,
+      "runtime": 8.19847451010719
+    },
+    "diagonal_10d": {
+      "n_dims": 10,
+      "time_horizon": 10.0,
+      "n_samples": 1000,
+      "status": "SAFE",
+      "min_objective": 1.1135599547679687,
+      "error_bound": 0.161450550226869,
+      "runtime": 2.7097357439342886
+    },
+    "stiff_vdp_2d": {
+      "n_dims": 2,
+      "time_horizon": 20.0,
+      "n_samples": 1000,
+      "status": "SAFE",
+      "min_objective": 0.17845590797679378,
+      "error_bound": 0.0002840356849437976,
+      "runtime": 20.376106029143557
+    },
+    "rossler_3d": {
+      "n_dims": 3,
+      "time_horizon": 50.0,
+      "n_samples": 1000,
+      "status": "UNSAFE",
+      "min_objective": -1.1392760957765922,
+      "error_bound": 8.625114725445895,
+      "runtime": 36.80778104602359
+    },
+    "double_pendulum_4d": {
+      "n_dims": 4,
+      "time_horizon": 10.0,
+      "n_samples": 1000,
+      "status": "SAFE",
+      "min_objective": 3.1974214891507606,
+      "error_bound": 0.06945820665147509,
+      "runtime": 36.70943890907802
+    },
+    "lotka_volterra_4d": {
+      "n_dims": 4,
+      "time_horizon": 20.0,
+      "n_samples": 1000,
+      "status": "SAFE",
+      "min_objective": 2.1584025780619696,
+      "error_bound": 0.6732338757077099,
+      "runtime": 5.536616502795368
+    },
+    "neural_net_6d": {
+      "n_dims": 6,
+      "time_horizon": 10.0,
+      "n_samples": 1000,
+      "status": "SAFE",
+      "min_objective": 0.4366551980413874,
+      "error_bound": 0.3500373788742051,
+      "runtime": 3.3964851500932127
+    },
+    "_summary": {
+      "total_time": 113.73493946902454,
+      "n_problems": 7,
+      "n_successful": 7
+    }
+  }
+}
