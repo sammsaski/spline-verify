@@ -159,7 +159,14 @@ class SafetyVerifier:
                 error_bound=0.0,
                 safety_margin=sampled.min_value,
                 counterexample=sampled.argmin,
-                details={'early_exit': True, 'reason': 'sample_hit_unsafe'}
+                details={
+                    'early_exit': True,
+                    'reason': 'sample_hit_unsafe',
+                    'n_samples': n_samples,
+                    'spline': None,  # No spline fitted in early exit
+                    'sample_points': points,
+                    'sample_values': values,
+                }
             )
 
         # Step 2: Fit spline approximation
@@ -255,7 +262,11 @@ class SafetyVerifier:
                     'sampling': error_budget.sampling_error,
                     'approximation': error_budget.approximation_error,
                     'minimization': error_budget.minimization_error,
-                }
+                },
+                # Spline and sample data for visualization
+                'spline': spline,
+                'sample_points': points,
+                'sample_values': values,
             }
         )
 

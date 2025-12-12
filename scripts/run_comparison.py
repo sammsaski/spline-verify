@@ -687,129 +687,207 @@ def plot_sampling_comparison(
     return fig
 
 
-def plot_distance_function(
+def plot_spline_approximation(
     problem: UnsafeSupport,
     problem_name: str,
+    problem_type: str = 'flow',
     n_samples: int = 200,
     save_path: Path | None = None,
 ) -> plt.Figure:
-    """Plot the distance function F_T(x0) over the initial set.
+    """Plot the spline-verify approximation F̃_T(x₀) over the initial set.
 
-    Creates a visualization showing:
-    - Contour plot of minimum distance to unsafe set from each initial condition
-    - Comparison between spline-verify (computed) and M-S bounds
+    This shows the ACTUAL approximation produced by spline-verify, not brute-force
+    computed ground truth. The plot includes:
+    - Contour of the fitted spline approximation
+    - Sample points used for fitting (scatter overlay)
+    - Minimizer location (star marker)
+    - Initial and unsafe set boundaries
 
     Args:
         problem: UnsafeSupport problem definition
         problem_name: Name for the title
-        n_samples: Number of samples for computing distance function
+        problem_type: 'flow' for half-disk unsafe set, 'moon' for moon shape
+        n_samples: Number of samples for spline fitting
         save_path: Optional path to save figure
+
+    Returns:
+        matplotlib Figure
     """
-    from spline_verify.dynamics import ODEDynamics
-    from spline_verify.geometry import Ball, LevelSet
+    from matplotlib.patches import Polygon
 
-    fig, ax = plt.subplots(1, 1, figsize=(10, 8))
+    print(f"  Running spline-verify for {problem_name}...")
 
-    # Create grid over initial set
+    # Translate problem and run spline-verify
+    dynamics, initial_set, unsafe_set = translate_problem_to_spline_verify(problem)
+    verifier = SafetyVerifier(n_samples=n_samples, seed=42)
+    result = verifier.verify(dynamics, initial_set, unsafe_set, problem.time_horizon)
+
+    # Extract spline and sample data from result
+    spline = result.details.get('spline')
+    sample_points = result.details['sample_points']
+    sample_values = result.details['sample_values']
+
+    # Create evaluation grid over initial set
     center = problem.initial_center
     radius = problem.initial_radius
-    n_grid = 50
+    n_grid = 60
 
     x1_range = np.linspace(center[0] - radius, center[0] + radius, n_grid)
     x2_range = np.linspace(center[1] - radius, center[1] + radius, n_grid)
     X1, X2 = np.meshgrid(x1_range, x2_range)
 
-    # Compute distance function at each grid point
-    F_T = np.full_like(X1, np.nan)
+    # Create figure
+    fig, ax = plt.subplots(1, 1, figsize=(10, 8))
 
-    # Create dynamics
-    dynamics = ODEDynamics(f=problem.dynamics, _n_dims=problem.n_vars)
+    # Get color scale from sample values
+    vmin, vmax = sample_values.min(), sample_values.max()
 
-    # Create unsafe set level function
-    def unsafe_distance(x):
-        """Compute distance from point x to unsafe set."""
-        x = np.asarray(x)
-        # Distance to ball boundary
-        dist_to_center = np.linalg.norm(x - problem.unsafe_center)
-        ball_dist = dist_to_center - problem.unsafe_radius
+    # Evaluate spline on grid if available (only within initial ball)
+    if spline is not None:
+        F_approx = np.full_like(X1, np.nan)
+        for i in range(n_grid):
+            for j in range(n_grid):
+                x = np.array([X1[i, j], X2[i, j]])
+                if np.linalg.norm(x - center) <= radius:
+                    F_approx[i, j] = spline.evaluate(x)
 
-        if ball_dist > 0:
-            # Outside ball
-            return ball_dist
+        # Plot contour of spline approximation
+        valid_mask = ~np.isnan(F_approx)
+        if np.any(valid_mask):
+            # Update vmin/vmax to include spline values
+            vmin = min(vmin, np.nanmin(F_approx))
+            vmax = max(vmax, np.nanmax(F_approx))
+            levels = np.linspace(vmin, vmax, 20)
 
-        # Inside ball - check constraints
-        for g in problem.unsafe_constraints:
-            constraint_val = g(x)
-            if constraint_val < 0:
-                # Outside constraint region
-                return -constraint_val
+            # Include zero level if range spans zero
+            if vmin < 0 < vmax:
+                levels = np.sort(np.unique(np.concatenate([levels, [0]])))
 
-        # Inside unsafe set
-        return ball_dist  # Negative
+            cs = ax.contourf(X1, X2, F_approx, levels=levels, cmap='RdYlGn', alpha=0.85)
+            cbar = plt.colorbar(cs, ax=ax)
+            cbar.set_label(r'Spline Approximation $\tilde{F}_T(x_0)$', fontsize=12)
 
-    print(f"  Computing distance function for {problem_name}...")
-    for i in range(n_grid):
-        for j in range(n_grid):
-            x0 = np.array([X1[i, j], X2[i, j]])
+            # Add zero contour if exists
+            if vmin < 0 < vmax:
+                ax.contour(X1, X2, F_approx, levels=[0], colors='black', linewidths=2)
+    else:
+        # No spline fitted (early exit case) - just show sample points
+        ax.text(
+            0.5, 0.5, 'UNSAFE: Sample hit unsafe set\n(No spline fitted)',
+            transform=ax.transAxes, fontsize=14, fontweight='bold',
+            ha='center', va='center', color='red',
+            bbox=dict(boxstyle='round', facecolor='white', alpha=0.9)
+        )
 
-            # Check if inside initial ball
-            if np.linalg.norm(x0 - center) > radius:
-                continue
+    # Overlay sample points (colored by their objective values)
+    scatter = ax.scatter(
+        sample_points[:, 0], sample_points[:, 1],
+        c=sample_values, cmap='RdYlGn',
+        vmin=vmin, vmax=vmax,
+        s=25, alpha=0.7, edgecolors='black', linewidths=0.5,
+        zorder=5
+    )
 
-            # Simulate trajectory
-            try:
-                sol = solve_ivp(
-                    problem.dynamics, [0, problem.time_horizon], x0,
-                    t_eval=np.linspace(0, problem.time_horizon, 200),
-                    method='RK45'
-                )
-                if sol.success:
-                    # Compute minimum distance along trajectory
-                    min_dist = np.inf
-                    for k in range(len(sol.t)):
-                        pt = sol.y[:, k]
-                        d = unsafe_distance(pt)
-                        if d < min_dist:
-                            min_dist = d
-                    F_T[i, j] = min_dist
-            except Exception:
-                pass
+    # Mark the minimizer with a star
+    ax.plot(
+        result.minimizer[0], result.minimizer[1],
+        'k*', markersize=18, markeredgecolor='white', markeredgewidth=1.5,
+        label=f'Minimizer (F̃ = {result.min_objective:.3f})', zorder=10
+    )
 
-    # Plot contour
-    levels = np.linspace(np.nanmin(F_T), np.nanmax(F_T), 20)
-    if np.nanmin(F_T) < 0:
-        # Include zero level for unsafe boundary
-        levels = np.sort(np.unique(np.concatenate([levels, [0]])))
-
-    cs = ax.contourf(X1, X2, F_T, levels=levels, cmap='RdYlGn', alpha=0.8)
-    cbar = plt.colorbar(cs, ax=ax, label='Min Distance to Unsafe Set')
-
-    # Add zero contour if exists
-    if np.nanmin(F_T) < 0 and np.nanmax(F_T) > 0:
-        ax.contour(X1, X2, F_T, levels=[0], colors='black', linewidths=2)
-
-    # Plot initial set boundary
+    # Plot initial set boundary (ball)
     theta = np.linspace(0, 2*np.pi, 100)
     init_x = center[0] + radius * np.cos(theta)
     init_y = center[1] + radius * np.sin(theta)
-    ax.plot(init_x, init_y, 'b-', linewidth=2.5, label='Initial set')
+    ax.plot(init_x, init_y, 'b-', linewidth=2.5, label='Initial set (ball)')
 
-    # Plot unsafe set
-    half_angle = getattr(problem, 'half_space_angle', None) or (5 * np.pi / 4)
-    angle_deg = np.degrees(half_angle)
-    wedge_start = angle_deg - 90
-    wedge_end = angle_deg + 90
+    # Plot unsafe set based on problem type
+    if problem_type == 'flow':
+        # Half-disk unsafe set
+        half_angle = getattr(problem, 'half_space_angle', None) or (5 * np.pi / 4)
+        angle_deg = np.degrees(half_angle)
+        wedge_start = angle_deg - 90
+        wedge_end = angle_deg + 90
 
-    wedge = Wedge(problem.unsafe_center, problem.unsafe_radius,
-                 wedge_start, wedge_end,
-                 facecolor='red', alpha=0.5, edgecolor='red', linewidth=2,
-                 label='Unsafe set')
-    ax.add_patch(wedge)
+        wedge = Wedge(
+            problem.unsafe_center, problem.unsafe_radius,
+            wedge_start, wedge_end,
+            facecolor='red', alpha=0.4, edgecolor='red', linewidth=2,
+            label='Unsafe set (half-disk)', zorder=3
+        )
+        ax.add_patch(wedge)
+    elif problem_type == 'moon':
+        # Moon shape unsafe set
+        h_in, h_out = 0.4, 1.0
+        moon_center = np.array([0.4, -0.4])
+        moon_theta = -np.pi / 10
+        moon_scale = 0.8
 
-    # Labels
+        moon_rot = np.array([
+            [np.cos(moon_theta), -np.sin(moon_theta)],
+            [np.sin(moon_theta), np.cos(moon_theta)]
+        ])
+
+        c_in = np.array([0.0, 0.5 * (1.0/h_in - h_in)])
+        r_in = 0.5 * (1.0/h_in + h_in)
+        c_out = np.array([0.0, 0.5 * (1.0/h_out - h_out)])
+        r_out = 0.5 * (1.0/h_out + h_out)
+
+        inner_center = moon_rot @ c_in * moon_scale + moon_center
+        outer_center = moon_rot @ c_out * moon_scale + moon_center
+        inner_radius = moon_scale * r_in
+        outer_radius = moon_scale * r_out
+
+        # Create crescent polygon
+        n_pts = 200
+        theta_fine = np.linspace(0, 2*np.pi, n_pts)
+
+        outer_arc = [outer_center + outer_radius * np.array([np.cos(t), np.sin(t)])
+                     for t in theta_fine
+                     if np.linalg.norm(outer_center + outer_radius * np.array([np.cos(t), np.sin(t)]) - inner_center) >= inner_radius]
+        inner_arc = [inner_center + inner_radius * np.array([np.cos(t), np.sin(t)])
+                     for t in theta_fine
+                     if np.linalg.norm(inner_center + inner_radius * np.array([np.cos(t), np.sin(t)]) - outer_center) <= outer_radius]
+
+        if outer_arc and inner_arc:
+            outer_arc = np.array(outer_arc)
+            inner_arc = np.array(inner_arc)
+            crescent_pts = np.vstack([outer_arc, inner_arc[::-1]])
+            crescent = Polygon(
+                crescent_pts, facecolor='red', alpha=0.4,
+                edgecolor='red', linewidth=2, label='Unsafe set (moon)', zorder=3
+            )
+            ax.add_patch(crescent)
+
+    # Add text annotation with results
+    text_lines = [
+        f"Spline min: {result.min_objective:.4f}",
+        f"Error bound: {result.error_bound:.4f}",
+        f"Status: {result.status.name}",
+        f"Samples: {n_samples}",
+    ]
+
+    # Run M-S if available to show comparison
+    if CVXPY_AVAILABLE and DistanceEstimator is not None:
+        try:
+            estimator = DistanceEstimator(order=4, verbose=False)
+            ms_result = estimator.estimate(problem, compute_upper_bound=False)
+            text_lines.append(f"M-S lower: {ms_result.lower_bound:.4f}")
+        except Exception:
+            pass
+
+    ax.text(
+        0.02, 0.98, '\n'.join(text_lines),
+        transform=ax.transAxes, fontsize=10,
+        verticalalignment='top', fontfamily='monospace',
+        bbox=dict(boxstyle='round', facecolor='white', alpha=0.9)
+    )
+
+    # Labels and formatting
     ax.set_xlabel('$x_1$', fontsize=14)
     ax.set_ylabel('$x_2$', fontsize=14)
-    ax.set_title(f'{problem_name}: Distance Function $F_T(x_0)$', fontsize=14, fontweight='bold')
+    ax.set_title(f'{problem_name}: Spline Approximation $\\tilde{{F}}_T(x_0)$',
+                fontsize=14, fontweight='bold')
     ax.legend(loc='upper right', fontsize=10)
     ax.set_aspect('equal')
     ax.grid(True, alpha=0.3)
@@ -818,159 +896,840 @@ def plot_distance_function(
 
     if save_path:
         fig.savefig(save_path, dpi=150, bbox_inches='tight')
-        print(f"  Saved distance function plot to {save_path}")
+        print(f"  Saved spline approximation plot to {save_path}")
 
     return fig
 
 
-def plot_distance_function_moon(
-    problem: UnsafeSupport,
-    problem_name: str,
-    save_path: Path | None = None,
-) -> plt.Figure:
-    """Plot the distance function F_T(x0) for moon system.
+# ============================================================================
+# Visualization Options for Comparison
+# ============================================================================
 
-    Args:
-        problem: UnsafeSupport problem definition (moon)
-        problem_name: Name for the title
-        save_path: Optional path to save figure
-    """
-    from matplotlib.patches import Polygon
+def _run_spline_verify(problem: UnsafeSupport, n_samples: int = 200):
+    """Helper to run spline-verify and return result with spline."""
+    dynamics, initial_set, unsafe_set = translate_problem_to_spline_verify(problem)
+    verifier = SafetyVerifier(n_samples=n_samples, seed=42)
+    return verifier.verify(dynamics, initial_set, unsafe_set, problem.time_horizon)
 
-    fig, ax = plt.subplots(1, 1, figsize=(10, 8))
 
-    # Create grid over initial set
-    center = problem.initial_center
-    radius = problem.initial_radius
-    n_grid = 50
+def _get_ms_bound(problem: UnsafeSupport) -> float | None:
+    """Helper to get M-S lower bound if available."""
+    if CVXPY_AVAILABLE and DistanceEstimator is not None:
+        try:
+            estimator = DistanceEstimator(order=4, verbose=False)
+            ms_result = estimator.estimate(problem, compute_upper_bound=False)
+            return ms_result.lower_bound
+        except Exception:
+            pass
+    return None
 
+
+def _evaluate_spline_on_grid(spline, center, radius, n_grid=60):
+    """Helper to evaluate spline on a grid over the initial ball."""
     x1_range = np.linspace(center[0] - radius, center[0] + radius, n_grid)
     x2_range = np.linspace(center[1] - radius, center[1] + radius, n_grid)
     X1, X2 = np.meshgrid(x1_range, x2_range)
 
-    # Moon parameters
-    h_in = 0.4
-    h_out = 1.0
-    moon_center = np.array([0.4, -0.4])
-    moon_theta = -np.pi / 10
-    moon_scale = 0.8
-
-    moon_rot = np.array([
-        [np.cos(moon_theta), -np.sin(moon_theta)],
-        [np.sin(moon_theta), np.cos(moon_theta)]
-    ])
-
-    c_in = np.array([0.0, 0.5 * (1.0/h_in - h_in)])
-    r_in = 0.5 * (1.0/h_in + h_in)
-    c_out = np.array([0.0, 0.5 * (1.0/h_out - h_out)])
-    r_out = 0.5 * (1.0/h_out + h_out)
-
-    inner_center = moon_rot @ c_in * moon_scale + moon_center
-    outer_center = moon_rot @ c_out * moon_scale + moon_center
-    inner_radius = moon_scale * r_in
-    outer_radius = moon_scale * r_out
-
-    def moon_distance(x):
-        """Compute distance from point x to moon unsafe set."""
-        x = np.asarray(x)
-        # Distance to outer circle
-        dist_to_outer = np.linalg.norm(x - outer_center) - outer_radius
-        # Distance to inner circle (negative means inside)
-        dist_to_inner = np.linalg.norm(x - inner_center) - inner_radius
-
-        if dist_to_outer > 0:
-            # Outside outer circle
-            return dist_to_outer
-        elif dist_to_inner < 0:
-            # Inside inner circle (excluded from moon)
-            return -dist_to_inner
-        else:
-            # Inside moon (outer but not inner)
-            return min(dist_to_outer, 0)  # Negative
-
-    # Compute distance function
-    F_T = np.full_like(X1, np.nan)
-
-    print(f"  Computing distance function for {problem_name}...")
+    F_approx = np.full_like(X1, np.nan)
     for i in range(n_grid):
         for j in range(n_grid):
-            x0 = np.array([X1[i, j], X2[i, j]])
+            x = np.array([X1[i, j], X2[i, j]])
+            if np.linalg.norm(x - center) <= radius:
+                F_approx[i, j] = spline.evaluate(x)
 
-            # Check if inside initial ball
-            if np.linalg.norm(x0 - center) > radius:
-                continue
+    return X1, X2, F_approx
 
-            # Simulate trajectory
-            try:
-                sol = solve_ivp(
-                    problem.dynamics, [0, problem.time_horizon], x0,
-                    t_eval=np.linspace(0, problem.time_horizon, 200),
-                    method='RK45'
-                )
-                if sol.success:
-                    min_dist = np.inf
-                    for k in range(len(sol.t)):
-                        pt = sol.y[:, k]
-                        d = moon_distance(pt)
-                        if d < min_dist:
-                            min_dist = d
-                    F_T[i, j] = min_dist
-            except Exception:
-                pass
 
-    # Plot contour
-    levels = np.linspace(np.nanmin(F_T), np.nanmax(F_T), 20)
-    if np.nanmin(F_T) < 0 and np.nanmax(F_T) > 0:
-        levels = np.sort(np.unique(np.concatenate([levels, [0]])))
+def plot_option1_clean_contour(
+    problem: UnsafeSupport,
+    n_samples: int = 200,
+    save_path: Path | None = None,
+) -> plt.Figure:
+    """Option 1: Clean contour plot of F̃_T(x₀), no unsafe set.
 
-    cs = ax.contourf(X1, X2, F_T, levels=levels, cmap='RdYlGn', alpha=0.8)
-    plt.colorbar(cs, ax=ax, label='Min Distance to Unsafe Set')
+    Shows only the spline approximation as a function of initial state.
+    """
+    print("  Generating Option 1: Clean contour...")
+    result = _run_spline_verify(problem, n_samples)
+    ms_bound = _get_ms_bound(problem)
 
-    if np.nanmin(F_T) < 0 and np.nanmax(F_T) > 0:
-        ax.contour(X1, X2, F_T, levels=[0], colors='black', linewidths=2)
+    spline = result.details.get('spline')
+    sample_points = result.details['sample_points']
+    sample_values = result.details['sample_values']
 
-    # Plot initial set boundary
+    if spline is None:
+        print("    Skipped (no spline fitted - early exit)")
+        return None
+
+    center = problem.initial_center
+    radius = problem.initial_radius
+    X1, X2, F_approx = _evaluate_spline_on_grid(spline, center, radius)
+
+    fig, ax = plt.subplots(1, 1, figsize=(10, 8))
+
+    vmin, vmax = np.nanmin(F_approx), np.nanmax(F_approx)
+    levels = np.linspace(vmin, vmax, 20)
+
+    cs = ax.contourf(X1, X2, F_approx, levels=levels, cmap='viridis', alpha=0.9)
+    cbar = plt.colorbar(cs, ax=ax)
+    cbar.set_label('Min distance to unsafe set', fontsize=12)
+
+    # Sample points
+    ax.scatter(sample_points[:, 0], sample_points[:, 1],
+               c=sample_values, cmap='viridis', vmin=vmin, vmax=vmax,
+               s=20, alpha=0.6, edgecolors='white', linewidths=0.3, zorder=5)
+
+    # Minimizer
+    ax.plot(result.minimizer[0], result.minimizer[1],
+            'r*', markersize=18, markeredgecolor='white', markeredgewidth=1.5,
+            label=f'Minimizer (F̃ = {result.min_objective:.4f})', zorder=10)
+
+    # Initial set boundary
     theta = np.linspace(0, 2*np.pi, 100)
-    init_x = center[0] + radius * np.cos(theta)
-    init_y = center[1] + radius * np.sin(theta)
-    ax.plot(init_x, init_y, 'b-', linewidth=2.5, label='Initial set')
+    ax.plot(center[0] + radius * np.cos(theta),
+            center[1] + radius * np.sin(theta),
+            'k--', linewidth=2, label='Initial set boundary')
 
-    # Plot moon unsafe set
-    n_pts = 200
-    theta_fine = np.linspace(0, 2*np.pi, n_pts)
-
-    outer_arc = []
-    for t in theta_fine:
-        pt = outer_center + outer_radius * np.array([np.cos(t), np.sin(t)])
-        if np.linalg.norm(pt - inner_center) >= inner_radius:
-            outer_arc.append(pt)
-
-    inner_arc = []
-    for t in theta_fine:
-        pt = inner_center + inner_radius * np.array([np.cos(t), np.sin(t)])
-        if np.linalg.norm(pt - outer_center) <= outer_radius:
-            inner_arc.append(pt)
-
-    if outer_arc and inner_arc:
-        outer_arc = np.array(outer_arc)
-        inner_arc = np.array(inner_arc)
-        crescent_pts = np.vstack([outer_arc, inner_arc[::-1]])
-        crescent = Polygon(crescent_pts, facecolor='red', alpha=0.5,
-                          edgecolor='red', linewidth=2, label='Unsafe set (moon)')
-        ax.add_patch(crescent)
+    # Text annotation
+    text = f"Spline min: {result.min_objective:.4f}\nError bound: {result.error_bound:.4f}"
+    if ms_bound is not None:
+        text += f"\nM-S bound: {ms_bound:.4f}"
+    ax.text(0.02, 0.98, text, transform=ax.transAxes, fontsize=10,
+            verticalalignment='top', fontfamily='monospace',
+            bbox=dict(boxstyle='round', facecolor='white', alpha=0.9))
 
     ax.set_xlabel('$x_1$', fontsize=14)
     ax.set_ylabel('$x_2$', fontsize=14)
-    ax.set_title(f'{problem_name}: Distance Function $F_T(x_0)$', fontsize=14, fontweight='bold')
+    ax.set_title(r'Option 1: Spline Approximation $\tilde{F}_T(x_0)$', fontsize=14, fontweight='bold')
     ax.legend(loc='upper right', fontsize=10)
     ax.set_aspect('equal')
     ax.grid(True, alpha=0.3)
 
     plt.tight_layout()
+    if save_path:
+        fig.savefig(save_path, dpi=150, bbox_inches='tight')
+        print(f"    Saved to {save_path}")
+
+    return fig
+
+
+def plot_option2_contour_ms_line(
+    problem: UnsafeSupport,
+    n_samples: int = 200,
+    save_path: Path | None = None,
+) -> plt.Figure:
+    """Option 2: Contour with M-S bound as contour line."""
+    print("  Generating Option 2: Contour with M-S line...")
+    result = _run_spline_verify(problem, n_samples)
+    ms_bound = _get_ms_bound(problem)
+
+    spline = result.details.get('spline')
+    if spline is None:
+        print("    Skipped (no spline fitted)")
+        return None
+
+    center = problem.initial_center
+    radius = problem.initial_radius
+    X1, X2, F_approx = _evaluate_spline_on_grid(spline, center, radius)
+
+    fig, ax = plt.subplots(1, 1, figsize=(10, 8))
+
+    vmin, vmax = np.nanmin(F_approx), np.nanmax(F_approx)
+    levels = np.linspace(vmin, vmax, 20)
+
+    cs = ax.contourf(X1, X2, F_approx, levels=levels, cmap='viridis', alpha=0.9)
+    cbar = plt.colorbar(cs, ax=ax)
+    cbar.set_label('Min distance to unsafe set', fontsize=12)
+
+    # Add M-S bound as contour line if within range
+    if ms_bound is not None and vmin <= ms_bound <= vmax:
+        cs_ms = ax.contour(X1, X2, F_approx, levels=[ms_bound],
+                          colors='red', linewidths=3, linestyles='--')
+        ax.clabel(cs_ms, fmt=f'M-S={ms_bound:.3f}', fontsize=10)
+
+    # Minimizer
+    ax.plot(result.minimizer[0], result.minimizer[1],
+            'r*', markersize=18, markeredgecolor='white', markeredgewidth=1.5,
+            label=f'Minimizer (F̃ = {result.min_objective:.4f})', zorder=10)
+
+    # Initial set boundary
+    theta = np.linspace(0, 2*np.pi, 100)
+    ax.plot(center[0] + radius * np.cos(theta),
+            center[1] + radius * np.sin(theta),
+            'k--', linewidth=2, label='Initial set boundary')
+
+    # Text annotation
+    text = f"Spline min: {result.min_objective:.4f}"
+    if ms_bound is not None:
+        text += f"\nM-S bound: {ms_bound:.4f}"
+        if ms_bound > vmax:
+            text += " (above range)"
+        elif ms_bound < vmin:
+            text += " (below range)"
+    ax.text(0.02, 0.98, text, transform=ax.transAxes, fontsize=10,
+            verticalalignment='top', fontfamily='monospace',
+            bbox=dict(boxstyle='round', facecolor='white', alpha=0.9))
+
+    ax.set_xlabel('$x_1$', fontsize=14)
+    ax.set_ylabel('$x_2$', fontsize=14)
+    ax.set_title(r'Option 2: Contour with M-S Bound Line', fontsize=14, fontweight='bold')
+    ax.legend(loc='upper right', fontsize=10)
+    ax.set_aspect('equal')
+    ax.grid(True, alpha=0.3)
+
+    plt.tight_layout()
+    if save_path:
+        fig.savefig(save_path, dpi=150, bbox_inches='tight')
+        print(f"    Saved to {save_path}")
+
+    return fig
+
+
+def plot_option3_1d_slice(
+    problem: UnsafeSupport,
+    n_samples: int = 200,
+    save_path: Path | None = None,
+) -> plt.Figure:
+    """Option 3: 1D slice through center showing F̃_T vs x₁."""
+    print("  Generating Option 3: 1D slice...")
+    result = _run_spline_verify(problem, n_samples)
+    ms_bound = _get_ms_bound(problem)
+
+    spline = result.details.get('spline')
+    sample_points = result.details['sample_points']
+    sample_values = result.details['sample_values']
+
+    if spline is None:
+        print("    Skipped (no spline fitted)")
+        return None
+
+    center = problem.initial_center
+    radius = problem.initial_radius
+
+    # Create 1D slice at x2 = center[1]
+    x1_vals = np.linspace(center[0] - radius, center[0] + radius, 100)
+    f_vals = []
+    for x1 in x1_vals:
+        x = np.array([x1, center[1]])
+        if np.linalg.norm(x - center) <= radius:
+            f_vals.append(spline.evaluate(x))
+        else:
+            f_vals.append(np.nan)
+    f_vals = np.array(f_vals)
+
+    # Find sample points near the slice (within tolerance)
+    tol = 0.1 * radius
+    near_slice = np.abs(sample_points[:, 1] - center[1]) < tol
+    slice_samples_x = sample_points[near_slice, 0]
+    slice_samples_f = sample_values[near_slice]
+
+    fig, ax = plt.subplots(1, 1, figsize=(12, 6))
+
+    # Plot spline approximation
+    ax.plot(x1_vals, f_vals, 'b-', linewidth=2.5, label=r'Spline $\tilde{F}_T(x_1, x_2^*)$')
+
+    # Plot M-S bound as horizontal line
+    if ms_bound is not None:
+        ax.axhline(y=ms_bound, color='red', linestyle='--', linewidth=2,
+                   label=f'M-S bound = {ms_bound:.4f}')
+
+    # Plot sample points near slice
+    if len(slice_samples_x) > 0:
+        ax.scatter(slice_samples_x, slice_samples_f, c='green', s=50,
+                   edgecolors='black', linewidths=0.5, zorder=5,
+                   label=f'Samples near slice (n={len(slice_samples_x)})')
+
+    # Mark minimizer if on slice
+    if np.abs(result.minimizer[1] - center[1]) < tol:
+        ax.axvline(x=result.minimizer[0], color='purple', linestyle=':',
+                   linewidth=1.5, alpha=0.7)
+        ax.plot(result.minimizer[0], result.min_objective, 'r*', markersize=15,
+                label=f'Minimizer = {result.min_objective:.4f}')
+
+    ax.set_xlabel('$x_1$', fontsize=14)
+    ax.set_ylabel(r'$\tilde{F}_T(x_0)$ (min distance to unsafe)', fontsize=14)
+    ax.set_title(f'Option 3: 1D Slice at $x_2 = {center[1]:.2f}$', fontsize=14, fontweight='bold')
+    ax.legend(loc='best', fontsize=10)
+    ax.grid(True, alpha=0.3)
+
+    # Mark initial set bounds
+    ax.axvline(x=center[0] - radius, color='gray', linestyle=':', alpha=0.5)
+    ax.axvline(x=center[0] + radius, color='gray', linestyle=':', alpha=0.5)
+
+    plt.tight_layout()
+    if save_path:
+        fig.savefig(save_path, dpi=150, bbox_inches='tight')
+        print(f"    Saved to {save_path}")
+
+    return fig
+
+
+def plot_option4_3d_surface(
+    problem: UnsafeSupport,
+    n_samples: int = 200,
+    save_path: Path | None = None,
+) -> plt.Figure:
+    """Option 4: 3D surface plot of F̃_T(x₀) with binary safe/unsafe colors."""
+    from mpl_toolkits.mplot3d import Axes3D
+    from matplotlib.colors import ListedColormap
+
+    print("  Generating Option 4: 3D surface...")
+    result = _run_spline_verify(problem, n_samples)
+    ms_bound = _get_ms_bound(problem)
+
+    spline = result.details.get('spline')
+    if spline is None:
+        print("    Skipped (no spline fitted)")
+        return None
+
+    center = problem.initial_center
+    radius = problem.initial_radius
+    X1, X2, F_approx = _evaluate_spline_on_grid(spline, center, radius, n_grid=40)
+
+    # Get sample statistics for more accurate safety assessment
+    sample_values = result.details['sample_values']
+    sample_min = sample_values.min()
+
+    fig = plt.figure(figsize=(12, 9))
+    ax = fig.add_subplot(111, projection='3d')
+
+    # Create binary color array: red (unsafe, F <= 0) vs green (safe, F > 0)
+    colors = np.where(F_approx > 0, 1.0, 0.0)  # 1 = safe (green), 0 = unsafe (red)
+
+    # Binary colormap: red and green only
+    cmap_binary = ListedColormap(['#CC0000', '#00AA00'])  # Dark red, Dark green
+
+    # Plot surface with binary colors
+    surf = ax.plot_surface(X1, X2, F_approx, facecolors=cmap_binary(colors),
+                           alpha=0.9, linewidth=0, antialiased=True,
+                           shade=True)
+
+    # Mark minimizer
+    ax.scatter([result.minimizer[0]], [result.minimizer[1]], [result.min_objective],
+               c='black', s=150, marker='*', edgecolors='white', linewidths=1,
+               zorder=10)
+
+    ax.set_xlabel('$x_1$', fontsize=12)
+    ax.set_ylabel('$x_2$', fontsize=12)
+    ax.set_zlabel(r'$\tilde{F}_T(x_0)$ (min dist to unsafe)', fontsize=12)
+    ax.set_title('Option 4: 3D Surface (Binary Safe/Unsafe Colors)',
+                fontsize=14, fontweight='bold')
+
+    # Create legend patches instead of colorbar
+    from matplotlib.patches import Patch
+    legend_elements = [
+        Patch(facecolor='#00AA00', label='Safe (F > 0)'),
+        Patch(facecolor='#CC0000', label='Unsafe (F ≤ 0)'),
+    ]
+    ax.legend(handles=legend_elements, loc='upper right', fontsize=11)
+
+    # Text annotation - use sample_min for more accurate safety assessment
+    actual_status = 'SAFE' if sample_min > 0 else 'UNSAFE'
+    text = f"Status: {actual_status}\nSample min: {sample_min:.4f}\nSpline min: {result.min_objective:.4f}"
+    if ms_bound is not None:
+        text += f"\nM-S bound: {ms_bound:.4f}"
+    ax.text2D(0.02, 0.98, text, transform=ax.transAxes, fontsize=11,
+              verticalalignment='top', fontfamily='monospace',
+              bbox=dict(boxstyle='round', facecolor='white', alpha=0.9))
+
+    ax.view_init(elev=25, azim=-60)
+
+    plt.tight_layout()
+    if save_path:
+        fig.savefig(save_path, dpi=150, bbox_inches='tight')
+        print(f"    Saved to {save_path}")
+
+    return fig
+
+
+def plot_option5_samples_comparison(
+    problem: UnsafeSupport,
+    n_samples: int = 200,
+    save_path: Path | None = None,
+) -> plt.Figure:
+    """Option 5: Side-by-side showing raw samples and fitted approximation."""
+    print("  Generating Option 5: Samples comparison...")
+    result = _run_spline_verify(problem, n_samples)
+    ms_bound = _get_ms_bound(problem)
+
+    spline = result.details.get('spline')
+    sample_points = result.details['sample_points']
+    sample_values = result.details['sample_values']
+
+    center = problem.initial_center
+    radius = problem.initial_radius
+
+    fig, axes = plt.subplots(1, 2, figsize=(16, 7))
+
+    vmin, vmax = sample_values.min(), sample_values.max()
+
+    # Left: Raw samples only
+    ax = axes[0]
+    scatter = ax.scatter(sample_points[:, 0], sample_points[:, 1],
+                        c=sample_values, cmap='viridis', vmin=vmin, vmax=vmax,
+                        s=40, edgecolors='black', linewidths=0.5)
+    plt.colorbar(scatter, ax=ax, label='Sampled F_T values')
+
+    # Initial set boundary
+    theta = np.linspace(0, 2*np.pi, 100)
+    ax.plot(center[0] + radius * np.cos(theta),
+            center[1] + radius * np.sin(theta),
+            'k--', linewidth=2)
+
+    ax.set_xlabel('$x_1$', fontsize=14)
+    ax.set_ylabel('$x_2$', fontsize=14)
+    ax.set_title(f'Raw Samples (n={n_samples})\nmin={sample_values.min():.4f}', fontsize=12)
+    ax.set_aspect('equal')
+    ax.grid(True, alpha=0.3)
+
+    # Right: Fitted spline contour
+    ax = axes[1]
+    if spline is not None:
+        X1, X2, F_approx = _evaluate_spline_on_grid(spline, center, radius)
+        cs = ax.contourf(X1, X2, F_approx, levels=20, cmap='viridis',
+                        vmin=vmin, vmax=vmax, alpha=0.9)
+        plt.colorbar(cs, ax=ax, label=r'Spline $\tilde{F}_T$')
+
+        # Minimizer
+        ax.plot(result.minimizer[0], result.minimizer[1],
+                'r*', markersize=15, markeredgecolor='white', markeredgewidth=1.5)
+    else:
+        ax.text(0.5, 0.5, 'No spline fitted\n(early exit)', transform=ax.transAxes,
+                ha='center', va='center', fontsize=14)
+
+    ax.plot(center[0] + radius * np.cos(theta),
+            center[1] + radius * np.sin(theta),
+            'k--', linewidth=2)
+
+    ax.set_xlabel('$x_1$', fontsize=14)
+    ax.set_ylabel('$x_2$', fontsize=14)
+    title = f'Spline Approximation\nmin={result.min_objective:.4f}'
+    if ms_bound is not None:
+        title += f', M-S={ms_bound:.4f}'
+    ax.set_title(title, fontsize=12)
+    ax.set_aspect('equal')
+    ax.grid(True, alpha=0.3)
+
+    plt.suptitle('Option 5: Raw Samples vs Fitted Spline', fontsize=14, fontweight='bold')
+    plt.tight_layout()
 
     if save_path:
         fig.savefig(save_path, dpi=150, bbox_inches='tight')
-        print(f"  Saved distance function plot to {save_path}")
+        print(f"    Saved to {save_path}")
+
+    return fig
+
+
+def plot_distance_function_3d(
+    problem: UnsafeSupport,
+    problem_name: str,
+    n_samples: int = 500,
+    spline_smoothing: float = 0.01,
+    save_path: Path | None = None,
+) -> plt.Figure:
+    """Plot 3D surface of spline-verify distance approximation with binary safe/unsafe colors.
+
+    This is the primary visualization for showing how F̃_T(x₀) varies over initial states.
+    - Green: SAFE cases (spline min > 0) - entire surface is green
+    - Red/Green: UNSAFE cases - binary coloring based on function values
+
+    Args:
+        problem: UnsafeSupport problem definition
+        problem_name: Name for the title
+        n_samples: Number of samples for spline fitting (default 500 for better accuracy)
+        spline_smoothing: RBF smoothing parameter (default 0.01 to reduce overshoot)
+        save_path: Optional path to save figure
+
+    Returns:
+        matplotlib Figure
+    """
+    from mpl_toolkits.mplot3d import Axes3D
+    from matplotlib.colors import ListedColormap
+    from scipy.interpolate import griddata
+
+    print(f"  Generating 3D distance function for {problem_name}...")
+
+    # Run spline-verify with improved hyperparameters
+    dynamics, initial_set, unsafe_set = translate_problem_to_spline_verify(problem)
+    verifier = SafetyVerifier(n_samples=n_samples, seed=42, spline_smoothing=spline_smoothing)
+    result = verifier.verify(dynamics, initial_set, unsafe_set, problem.time_horizon)
+
+    ms_bound = _get_ms_bound(problem)
+
+    spline = result.details.get('spline')
+    sample_points = result.details['sample_points']
+    sample_values = result.details['sample_values']
+    center = problem.initial_center
+    radius = problem.initial_radius
+
+    # Handle case where no spline is fitted (sample hit unsafe set)
+    # Use griddata to create a surface from samples for consistent visualization
+    if spline is None:
+        print("    Sample hit unsafe set - interpolating surface from samples...")
+        # Create grid for interpolation
+        n_grid = 50
+        x1_range = np.linspace(center[0] - radius, center[0] + radius, n_grid)
+        x2_range = np.linspace(center[1] - radius, center[1] + radius, n_grid)
+        X1, X2 = np.meshgrid(x1_range, x2_range)
+
+        # Interpolate using griddata (cubic for smooth surface)
+        F_approx = griddata(sample_points, sample_values, (X1, X2), method='cubic')
+        # Fill NaN values (outside convex hull) with nearest neighbor
+        F_approx_nearest = griddata(sample_points, sample_values, (X1, X2), method='nearest')
+        F_approx = np.where(np.isnan(F_approx), F_approx_nearest, F_approx)
+
+        spline_min = sample_values.min()
+    else:
+        X1, X2, F_approx = _evaluate_spline_on_grid(spline, center, radius, n_grid=50)
+        # Use actual grid minimum, not optimizer result (optimizer may miss local minima)
+        spline_min = np.nanmin(F_approx)
+
+    # Determine safety status based on actual grid minimum (not optimizer result)
+    # This ensures consistency between what we visualize and the status we report
+    is_safe = spline_min > 0
+
+    fig = plt.figure(figsize=(12, 9))
+    ax = fig.add_subplot(111, projection='3d')
+
+    # Binary colormap: red and green only
+    cmap_binary = ListedColormap(['#CC0000', '#00AA00'])  # Dark red, Dark green
+
+    # Determine coloring based on safety status
+    if is_safe:
+        # SAFE case: entire surface is green (status determined by spline minimum)
+        colors = np.ones_like(F_approx)  # All 1.0 = green
+        title_color = 'black'
+    else:
+        # UNSAFE case: binary coloring based on function values
+        colors = np.where(F_approx > 0, 1.0, 0.0)  # 1 = green, 0 = red
+        title_color = 'red'
+
+    # Plot surface with binary colors
+    surf = ax.plot_surface(X1, X2, F_approx, facecolors=cmap_binary(colors),
+                           alpha=0.9, linewidth=0, antialiased=True,
+                           shade=True)
+
+    # Add M-S bound as horizontal plane if available
+    if ms_bound is not None:
+        vmin, vmax = np.nanmin(F_approx), np.nanmax(F_approx)
+        # Only show if bound is within a reasonable range
+        if vmin - 0.1 * (vmax - vmin) <= ms_bound <= vmax + 0.1 * (vmax - vmin):
+            xx, yy = np.meshgrid(
+                np.linspace(center[0] - radius, center[0] + radius, 10),
+                np.linspace(center[1] - radius, center[1] + radius, 10)
+            )
+            ax.plot_surface(xx, yy, np.full_like(xx, ms_bound),
+                           alpha=0.3, color='blue')
+
+    # Mark minimizer
+    if spline is not None:
+        ax.scatter([result.minimizer[0]], [result.minimizer[1]], [result.min_objective],
+                   c='black', s=200, marker='*', edgecolors='white', linewidths=1.5,
+                   zorder=10)
+    else:
+        # For interpolated surface, mark the sample with min value
+        min_idx = np.argmin(sample_values)
+        ax.scatter([sample_points[min_idx, 0]], [sample_points[min_idx, 1]], [sample_values[min_idx]],
+                   c='black', s=200, marker='*', edgecolors='white', linewidths=1.5, zorder=10)
+
+    ax.set_xlabel('$x_1$ (initial state)', fontsize=12)
+    ax.set_ylabel('$x_2$ (initial state)', fontsize=12)
+    ax.set_zlabel(r'$\tilde{F}_T(x_0)$', fontsize=12)
+
+    status = 'SAFE' if is_safe else 'UNSAFE'
+    ax.set_title(f'{problem_name}\nSpline Approximation of Distance Function',
+                fontsize=14, fontweight='bold', color=title_color)
+
+    # Create legend patches
+    from matplotlib.patches import Patch
+    legend_elements = [
+        Patch(facecolor='#00AA00', label='Safe (F > 0)'),
+        Patch(facecolor='#CC0000', label='Unsafe (F ≤ 0)'),
+    ]
+    if ms_bound is not None:
+        legend_elements.append(Patch(facecolor='blue', alpha=0.3, label='M-S lower bound'))
+    ax.legend(handles=legend_elements, loc='upper right', fontsize=11)
+
+    # Status annotation
+    text_lines = [
+        f"Status: {status}",
+        f"Spline min: {spline_min:.4f}",
+        f"Samples: {n_samples}",
+    ]
+    if ms_bound is not None:
+        text_lines.append(f"M-S lower: {ms_bound:.4f}")
+
+    ax.text2D(0.02, 0.98, '\n'.join(text_lines), transform=ax.transAxes, fontsize=11,
+              verticalalignment='top', fontfamily='monospace',
+              bbox=dict(boxstyle='round', facecolor='white', alpha=0.9))
+
+    ax.view_init(elev=30, azim=-50)
+
+    plt.tight_layout()
+    if save_path:
+        fig.savefig(save_path, dpi=150, bbox_inches='tight')
+        print(f"    Saved to {save_path}")
+
+    return fig
+
+
+def plot_distance_function_1d_slice(
+    problem: UnsafeSupport,
+    problem_name: str,
+    n_samples: int = 500,
+    spline_smoothing: float = 0.01,
+    save_path: Path | None = None,
+) -> plt.Figure:
+    """Plot 1D slice through center showing F̃_T vs x₁.
+
+    This visualization shows:
+    - Spline approximation along a 1D slice at x₂ = center[1]
+    - M-S lower bound as horizontal dashed line
+    - Sample points near the slice
+    - Minimizer location
+
+    Args:
+        problem: UnsafeSupport problem definition
+        problem_name: Name for the title
+        n_samples: Number of samples for spline fitting (default 500)
+        spline_smoothing: RBF smoothing parameter (default 0.01)
+        save_path: Optional path to save figure
+
+    Returns:
+        matplotlib Figure
+    """
+    print(f"  Generating 1D slice for {problem_name}...")
+
+    # Run spline-verify with improved hyperparameters
+    dynamics, initial_set, unsafe_set = translate_problem_to_spline_verify(problem)
+    verifier = SafetyVerifier(n_samples=n_samples, seed=42, spline_smoothing=spline_smoothing)
+    result = verifier.verify(dynamics, initial_set, unsafe_set, problem.time_horizon)
+
+    ms_bound = _get_ms_bound(problem)
+
+    spline = result.details.get('spline')
+    sample_points = result.details['sample_points']
+    sample_values = result.details['sample_values']
+    center = problem.initial_center
+    radius = problem.initial_radius
+
+    # Determine safety status
+    is_safe = result.min_objective > 0
+
+    # Create 1D slice at x2 = center[1]
+    x1_vals = np.linspace(center[0] - radius, center[0] + radius, 200)
+    f_vals = []
+
+    if spline is not None:
+        for x1 in x1_vals:
+            x = np.array([x1, center[1]])
+            if np.linalg.norm(x - center) <= radius:
+                f_vals.append(spline.evaluate(x))
+            else:
+                f_vals.append(np.nan)
+        f_vals = np.array(f_vals)
+        # Use actual slice minimum for accurate status
+        slice_min = np.nanmin(f_vals)
+    else:
+        # No spline - use griddata interpolation from samples
+        from scipy.interpolate import griddata
+        # Get slice values from nearest samples
+        slice_points = np.column_stack([x1_vals, np.full_like(x1_vals, center[1])])
+        f_vals = griddata(sample_points, sample_values, slice_points, method='linear')
+        f_vals_nearest = griddata(sample_points, sample_values, slice_points, method='nearest')
+        f_vals = np.where(np.isnan(f_vals), f_vals_nearest, f_vals)
+        slice_min = sample_values.min()
+
+    # For a complete picture, we need to check the full 2D spline minimum, not just the slice
+    # Evaluate spline on a grid to find the actual minimum
+    if spline is not None:
+        X1_grid, X2_grid, F_grid = _evaluate_spline_on_grid(spline, center, radius, n_grid=50)
+        spline_min = np.nanmin(F_grid)
+    else:
+        spline_min = sample_values.min()
+
+    # Safety status based on full 2D minimum
+    is_safe = spline_min > 0
+
+    # Find sample points near the slice (within tolerance)
+    tol = 0.1 * radius
+    near_slice = np.abs(sample_points[:, 1] - center[1]) < tol
+    slice_samples_x = sample_points[near_slice, 0]
+    slice_samples_f = sample_values[near_slice]
+
+    fig, ax = plt.subplots(1, 1, figsize=(12, 6))
+
+    # Plot spline approximation
+    ax.plot(x1_vals, f_vals, 'b-', linewidth=2.5, label=r'Spline $\tilde{F}_T(x_1, x_2^*)$')
+
+    # Plot M-S bound as horizontal line
+    if ms_bound is not None:
+        ax.axhline(y=ms_bound, color='red', linestyle='--', linewidth=2,
+                   label=f'M-S bound = {ms_bound:.4f}')
+
+    # Plot sample points near slice
+    if len(slice_samples_x) > 0:
+        ax.scatter(slice_samples_x, slice_samples_f, c='green', s=50,
+                   edgecolors='black', linewidths=0.5, zorder=5,
+                   label=f'Samples near slice (n={len(slice_samples_x)})')
+
+    # Mark the slice minimum (actual minimum along this slice)
+    slice_min_idx = np.nanargmin(f_vals)
+    ax.plot(x1_vals[slice_min_idx], f_vals[slice_min_idx], 'r*', markersize=15,
+            label=f'Slice min = {slice_min:.4f}')
+
+    ax.set_xlabel('$x_1$', fontsize=14)
+    ax.set_ylabel(r'$\tilde{F}_T(x_0)$ (min distance to unsafe)', fontsize=14)
+
+    status = 'SAFE' if is_safe else 'UNSAFE'
+    title_color = 'black' if is_safe else 'red'
+    ax.set_title(f'{problem_name}: 1D Slice at $x_2 = {center[1]:.2f}$\nStatus: {status}',
+                fontsize=14, fontweight='bold', color=title_color)
+    ax.legend(loc='best', fontsize=10)
+    ax.grid(True, alpha=0.3)
+
+    # Mark initial set bounds
+    ax.axvline(x=center[0] - radius, color='gray', linestyle=':', alpha=0.5)
+    ax.axvline(x=center[0] + radius, color='gray', linestyle=':', alpha=0.5)
+
+    plt.tight_layout()
+    if save_path:
+        fig.savefig(save_path, dpi=150, bbox_inches='tight')
+        print(f"    Saved to {save_path}")
+
+    return fig
+
+
+def plot_distance_vs_time(
+    problem: UnsafeSupport,
+    problem_name: str,
+    n_trajectories: int = 50,
+    save_path: Path | None = None,
+) -> plt.Figure:
+    """Plot distance to unsafe set over time for sampled trajectories (M-S style).
+
+    This visualization shows:
+    - Distance to unsafe set vs time for multiple trajectories (cyan)
+    - M-S lower bound as horizontal dashed red line
+    - Closest trajectory highlighted in blue
+
+    This is the visualization style used in the Miller-Sznaier paper.
+
+    Args:
+        problem: UnsafeSupport problem definition
+        problem_name: Name for the title
+        n_trajectories: Number of trajectories to sample
+        save_path: Optional path to save figure
+
+    Returns:
+        matplotlib Figure
+    """
+    print(f"  Generating distance vs time plot for {problem_name}...")
+
+    # Get M-S bound
+    ms_bound = _get_ms_bound(problem)
+
+    # Sample trajectories and compute distances
+    center = problem.initial_center
+    radius = problem.initial_radius
+
+    # Get the unsafe set distance function
+    dynamics, _, unsafe_set = translate_problem_to_spline_verify(problem)
+
+    # Sample initial conditions from ball
+    np.random.seed(42)
+    trajectories = []
+    min_dist_overall = np.inf
+    closest_traj_idx = 0
+
+    n_time_points = 100
+    t_eval = np.linspace(0, problem.time_horizon, n_time_points)
+
+    for i in range(n_trajectories):
+        # Sample from ball
+        angle = 2 * np.pi * np.random.random()
+        r = radius * np.sqrt(np.random.random())  # sqrt for uniform in disk
+        x0 = center + r * np.array([np.cos(angle), np.sin(angle)])
+
+        # Integrate trajectory
+        sol = solve_ivp(
+            problem.dynamics, [0, problem.time_horizon], x0,
+            t_eval=t_eval, method='RK45'
+        )
+
+        if not sol.success:
+            continue
+
+        # Compute distance at each time step
+        distances = []
+        for j in range(len(sol.t)):
+            x = sol.y[:, j]
+            d = unsafe_set.distance(x)
+            distances.append(d)
+        distances = np.array(distances)
+
+        min_dist = np.min(distances)
+        trajectories.append({
+            't': sol.t,
+            'x': sol.y,
+            'dist': distances,
+            'min_dist': min_dist,
+            'x0': x0,
+        })
+
+        if min_dist < min_dist_overall:
+            min_dist_overall = min_dist
+            closest_traj_idx = len(trajectories) - 1
+
+    if not trajectories:
+        print("    No successful trajectories")
+        return None
+
+    # Create plot
+    fig, ax = plt.subplots(1, 1, figsize=(12, 6))
+
+    # Plot all trajectories (cyan, semi-transparent)
+    for i, traj in enumerate(trajectories):
+        if i == closest_traj_idx:
+            continue  # Plot this one last
+        label = 'Trajectories' if i == 0 else None
+        ax.plot(traj['t'], traj['dist'], 'c-', alpha=0.4, linewidth=0.8, label=label)
+
+    # Plot closest trajectory (blue, bold)
+    closest = trajectories[closest_traj_idx]
+    ax.plot(closest['t'], closest['dist'], 'b-', linewidth=2.5,
+            label=f'Closest trajectory (min={min_dist_overall:.4f})')
+
+    # Mark minimum point
+    min_idx = np.argmin(closest['dist'])
+    ax.scatter([closest['t'][min_idx]], [closest['dist'][min_idx]],
+               c='blue', s=150, marker='*', zorder=10, edgecolors='white', linewidths=1)
+
+    # M-S lower bound as horizontal line
+    if ms_bound is not None:
+        ax.axhline(y=ms_bound, color='red', linestyle='--', linewidth=2.5,
+                   label=f'M-S lower bound = {ms_bound:.4f}')
+
+    # Zero line (unsafe boundary)
+    ax.axhline(y=0, color='black', linestyle='-', linewidth=1, alpha=0.5)
+    ax.text(problem.time_horizon * 0.98, 0.02, 'Unsafe (F=0)', fontsize=10,
+            ha='right', va='bottom', alpha=0.7)
+
+    ax.set_xlabel('Time $t$', fontsize=14)
+    ax.set_ylabel('Distance to unsafe set', fontsize=14)
+    ax.set_title(f'{problem_name}\nDistance to Unsafe Set Along Trajectories',
+                fontsize=14, fontweight='bold')
+    ax.legend(loc='upper right', fontsize=11)
+    ax.grid(True, alpha=0.3)
+
+    # Set y-axis to start slightly below min
+    ymin = min(0, min_dist_overall * 1.1 if min_dist_overall < 0 else -0.05 * closest['dist'].max())
+    ax.set_ylim(bottom=ymin)
+
+    plt.tight_layout()
+    if save_path:
+        fig.savefig(save_path, dpi=150, bbox_inches='tight')
+        print(f"    Saved to {save_path}")
 
     return fig
 
@@ -1020,6 +1779,8 @@ def main():
                        help='Save figures and results')
     parser.add_argument('--outdir', type=str, default='./results/comparison',
                        help='Output directory')
+    parser.add_argument('--viz-options', action='store_true',
+                       help='Generate visualization options for comparison')
     args = parser.parse_args()
 
     # Default to quick if neither specified
@@ -1120,6 +1881,7 @@ def main():
 
         for variant_name, angle, description in flow_variants:
             print(f"\n  {description}...")
+            # Use T=5.0 for sampling comparison (original time horizon)
             flow_variant = create_flow_system(time_horizon=5.0, half_space_angle=angle)
 
             # Sampling comparison figure
@@ -1130,11 +1892,21 @@ def main():
                 save_path=outdir / f'{variant_name}_sampling_comparison.png'
             )
 
-            # Distance function figure
-            plot_distance_function(
-                flow_variant,
+            # 3D distance function plot (spline-verify) with T=2.0
+            # Uses 500 samples and smoothing=0.001 for better accuracy
+            flow_variant_short = create_flow_system(time_horizon=2.0, half_space_angle=angle)
+            plot_distance_function_3d(
+                flow_variant_short,
                 problem_name=description,
                 save_path=outdir / f'{variant_name}_distance_function.png'
+            )
+            plt.close('all')
+
+            # 1D slice plot
+            plot_distance_function_1d_slice(
+                flow_variant_short,
+                problem_name=description,
+                save_path=outdir / f'{variant_name}_distance_1d_slice.png'
             )
             plt.close('all')
 
@@ -1143,6 +1915,7 @@ def main():
         print("Generating Moon System Figures")
         print("-" * 60)
 
+        # Use T=5.0 for sampling comparison (original time horizon)
         moon_full = create_moon_system(time_horizon=5.0)
         plot_sampling_comparison(
             moon_full,
@@ -1151,12 +1924,22 @@ def main():
             save_path=outdir / 'moon_sampling_comparison.png'
         )
 
-        # Distance function for moon (need to handle differently)
+        # 3D distance function plot (spline-verify) with T=2.0
+        # Uses 500 samples and smoothing=0.001 for better accuracy
         print("\n  Moon distance function...")
-        plot_distance_function_moon(
-            moon_full,
+        moon_short = create_moon_system(time_horizon=2.0)
+        plot_distance_function_3d(
+            moon_short,
             problem_name='Moon System',
             save_path=outdir / 'moon_distance_function.png'
+        )
+        plt.close('all')
+
+        # 1D slice plot for moon
+        plot_distance_function_1d_slice(
+            moon_short,
+            problem_name='Moon System',
+            save_path=outdir / 'moon_distance_1d_slice.png'
         )
         plt.close('all')
 
@@ -1165,6 +1948,36 @@ def main():
                 sample_results, order_results,
                 save_path=outdir / 'convergence.png'
             )
+
+    # Generate visualization options for comparison
+    if args.viz_options:
+        print("\n" + "-" * 60)
+        print("Generating Visualization Options")
+        print("-" * 60)
+
+        outdir_viz = outdir / 'viz_options'
+        outdir_viz.mkdir(parents=True, exist_ok=True)
+
+        # Use flow_dist_5pi_4 as the example
+        flow_5pi4 = create_flow_system(time_horizon=2.0, half_space_angle=5 * np.pi / 4)
+
+        print("\nFlow system (θ=5π/4):")
+        plot_option1_clean_contour(flow_5pi4, save_path=outdir_viz / 'option1_clean_contour.png')
+        plt.close('all')
+
+        plot_option2_contour_ms_line(flow_5pi4, save_path=outdir_viz / 'option2_contour_ms_line.png')
+        plt.close('all')
+
+        plot_option3_1d_slice(flow_5pi4, save_path=outdir_viz / 'option3_1d_slice.png')
+        plt.close('all')
+
+        plot_option4_3d_surface(flow_5pi4, save_path=outdir_viz / 'option4_3d_surface.png')
+        plt.close('all')
+
+        plot_option5_samples_comparison(flow_5pi4, save_path=outdir_viz / 'option5_samples.png')
+        plt.close('all')
+
+        print(f"\nAll visualization options saved to: {outdir_viz}")
 
     print("\nComparison complete!")
 
