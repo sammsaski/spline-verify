@@ -379,6 +379,24 @@ results = run_comparison_suite(verbose=True)
 - **Miller-Sznaier**: Occupation measure SDP relaxation → lower bounds
 - The gap between bounds indicates estimation uncertainty
 
+### Comparison Visualizations
+
+Generate comprehensive comparison figures:
+
+```bash
+python scripts/run_comparison.py --save --outdir ./results/comparison
+```
+
+This generates:
+- **3D Distance Function Plots** (`*_distance_function.png`): Spline approximation F̃_T(x₀) as a surface over initial states
+  - Green surface: SAFE (all F > 0)
+  - Red/green binary coloring: UNSAFE regions visible
+  - Blue horizontal plane: M-S lower bound
+- **1D Slice Plots** (`*_distance_1d_slice.png`): Cross-section at x₂=center showing spline curve vs M-S bound
+- **Sampling Comparison** (`*_sampling_comparison.png`): Initial set representations (M-S ball vs spline-verify box)
+
+Examples include Flow system variants (θ=5π/4, 3π/2, 7π/4) and Moon system from the M-S paper.
+
 ## Running Tests
 
 ```bash

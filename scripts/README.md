@@ -187,9 +187,41 @@ python scripts/run_comparison.py --full --save --outdir ./results/comparison
 ### Output
 
 When `--save` is specified:
+
+**Numerical Results:**
 - `comparison_results.json` - All numerical results
-- `comparison_bounds.png` - Side-by-side bound comparison
-- `comparison_runtime.png` - Runtime comparison across problems
+
+**Visualization Figures:**
+
+| Figure | Description |
+|--------|-------------|
+| `bounds_comparison.png` | Bar chart comparing spline-verify min vs M-S lower bound |
+| `gap_analysis.png` | Gap analysis and runtime speedup |
+| `flow_dist_*_distance_function.png` | 3D surface of spline approximation F̃_T(x₀) |
+| `flow_dist_*_distance_1d_slice.png` | 1D slice showing spline vs M-S bound |
+| `flow_dist_*_sampling_comparison.png` | M-S ball vs spline-verify box sampling |
+| `moon_distance_function.png` | Moon system 3D distance surface |
+| `moon_distance_1d_slice.png` | Moon system 1D slice |
+| `moon_sampling_comparison.png` | Moon system sampling comparison |
+
+**3D Distance Function Visualization:**
+- Green surface: SAFE (all F > 0)
+- Red/green binary: UNSAFE regions visible
+- Blue horizontal plane: M-S lower bound
+- Black star: Minimizer location
+
+**1D Slice Visualization:**
+- Blue curve: Spline approximation along x₁ axis
+- Red dashed line: M-S lower bound
+- Green dots: Sample points near slice
+- Red star: Slice minimum
+
+### Hyperparameters
+
+The comparison script uses these defaults for visualization:
+- **n_samples=500**: Provides reliable accuracy
+- **smoothing=0.01**: Prevents RBF oscillation artifacts
+- **n_grid=50**: Grid resolution for surface plots
 
 ---
 
