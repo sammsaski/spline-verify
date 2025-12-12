@@ -99,9 +99,8 @@ def create_flow_system(
     unsafe_center: np.ndarray = None,
     unsafe_radius: float = 0.5,
     time_horizon: float = 5.0,
-    half_space_angle: Optional[float] = 5 * np.pi / 4,
 ) -> UnsafeSupport:
-    """Create the Flow system from Miller & Sznaier's paper (Eq. 5).
+    """Create the Flow system from Miller & Sznaier's paper (Eq. 5, Fig. 5).
 
     Dynamics (Van der Pol-like):
         ẋ₁ = x₂
@@ -109,6 +108,8 @@ def create_flow_system(
 
     Default initial set: Circle centered at (1.5, 0) with radius 0.4
     Default unsafe set: Half-disk at (0, -0.7) with radius 0.5
+        The half-plane constraint is: cos(5π/4)*x1 + sin(5π/4)*x2 <= 0
+        This keeps the lower-left half of the ball.
 
     Args:
         initial_center: Center of initial ball. Default: [1.5, 0]
@@ -116,8 +117,6 @@ def create_flow_system(
         unsafe_center: Center of unsafe ball. Default: [0, -0.7]
         unsafe_radius: Radius of unsafe ball.
         time_horizon: Time horizon T.
-        half_space_angle: Angle for half-space constraint on unsafe set.
-            If None, uses full ball. Default: 5π/4.
 
     Returns:
         UnsafeSupport problem specification.
@@ -134,17 +133,34 @@ def create_flow_system(
             -x[0] + (1/3) * x[0]**3 - x[1]
         ])
 
-    # Half-space constraint for unsafe set
+    # Half-plane constraint for unsafe set (half-disk)
+    # From MATLAB: c2f = w_c(1)*(y(1) - Cu(1)) + w_c(2) * (y(2) - Cu(2)) >= 0
+    # where w_c = [cos(theta_c); sin(theta_c)] and theta_c = 5*pi/4
+    #
+    # This means: cos(5π/4)*(y1-c1) + sin(5π/4)*(y2-c2) >= 0
+    # = -0.707*(y1-c1) - 0.707*(y2-c2) >= 0
+    # = -(y1-c1) - (y2-c2) >= 0
+    # = y1 + y2 <= c1 + c2 = 0 + (-0.7) = -0.7
+    # This selects the lower-left region (below the line y1 + y2 = -0.7)
+    half_space_angle = 5 * np.pi / 4  # 225°
+    cos_theta = np.cos(half_space_angle)
+    sin_theta = np.sin(half_space_angle)
+
     unsafe_constraints = []
-    if half_space_angle is not None:
-        # Half-space: cos(θ)*(y1 - c1) + sin(θ)*(y2 - c2) >= 0
-        cos_theta = np.cos(half_space_angle)
-        sin_theta = np.sin(half_space_angle)
 
-        def half_space(y):
-            return cos_theta * (y[0] - unsafe_center[0]) + sin_theta * (y[1] - unsafe_center[1])
+    def half_plane_constraint(y):
+        """Returns >= 0 if point is in the half-disk (satisfies half-plane constraint).
 
-        unsafe_constraints.append(half_space)
+        The half-plane constraint from MATLAB is:
+            cos(5π/4)*(y1-c1) + sin(5π/4)*(y2-c2) >= 0
+        For a point to be IN the unsafe set, this must be satisfied.
+        Returns >= 0 if IN the unsafe half-disk, < 0 if OUT.
+        """
+        dy = y - unsafe_center
+        val = cos_theta * dy[0] + sin_theta * dy[1]
+        return val
+
+    unsafe_constraints.append(half_plane_constraint)
 
     return UnsafeSupport(
         n_vars=2,
@@ -164,13 +180,17 @@ def create_moon_system(
     initial_radius: float = 0.4,
     time_horizon: float = 5.0,
 ) -> UnsafeSupport:
-    """Create the Moon unsafe set variant (Fig. 10 from paper).
+    """Create the Moon unsafe set variant from Miller & Sznaier's MATLAB code.
 
     Same dynamics as Flow, but with a moon-shaped unsafe set.
 
-    The moon shape is the intersection of two circles:
-    - Outer circle centered at (0, -0.7) with radius 0.5
-    - Inner circle (excluded) centered at (0.25, -0.45) with radius 0.35
+    From MATLAB flow_dist_moon.m:
+    - Moon is constructed from two circles with h_in=0.4, h_out=1.0
+    - Transformed: rotated by -π/10, scaled by 0.8, centered at [0.4, -0.4]
+    - Outer circle: center=[0.4, -0.4], radius=0.8
+    - Inner circle (excluded): center≈[0.66, 0.40], radius=1.16
+
+    The moon shape is: inside outer circle AND outside inner circle.
 
     Args:
         initial_center: Center of initial ball. Default: [1.5, 0]
@@ -189,15 +209,39 @@ def create_moon_system(
             -x[0] + (1/3) * x[0]**3 - x[1]
         ])
 
-    outer_center = np.array([0.0, -0.7])
-    outer_radius = 0.5
-    inner_center = np.array([0.25, -0.45])
-    inner_radius = 0.35
+    # Moon parameters from MATLAB flow_dist_moon.m
+    h_in = 0.4
+    h_out = 1.0
+    moon_center = np.array([0.4, -0.4])
+    moon_theta = -np.pi / 10
+    moon_scale = 0.8
 
-    # Moon constraint: in outer ball but NOT in inner ball
-    # i.e., |y - outer|^2 <= outer_r^2 AND |y - inner|^2 >= inner_r^2
+    # Rotation matrix
+    moon_rot = np.array([
+        [np.cos(moon_theta), -np.sin(moon_theta)],
+        [np.sin(moon_theta), np.cos(moon_theta)]
+    ])
+
+    # Inner and outer circle parameters (before transformation)
+    c_in = np.array([0.0, 0.5 * (1.0/h_in - h_in)])
+    r_in = 0.5 * (1.0/h_in + h_in)
+
+    c_out = np.array([0.0, 0.5 * (1.0/h_out - h_out)])
+    r_out = 0.5 * (1.0/h_out + h_out)
+
+    # Apply transformation: rotate, scale, translate
+    inner_center = moon_rot @ c_in * moon_scale + moon_center
+    outer_center = moon_rot @ c_out * moon_scale + moon_center
+
+    inner_radius = moon_scale * r_in
+    outer_radius = moon_scale * r_out
+
+    # Moon constraint: in outer ball AND outside inner ball
+    # From MATLAB:
+    #   con_inner = |y - c_in_scale|^2 - r_in_scale^2 >= 0  (outside inner)
+    #   con_outer = -|y - c_out_scale|^2 + r_out_scale^2 >= 0  (inside outer)
     def moon_constraint(y):
-        """Returns >= 0 if in moon shape (outside inner circle)."""
+        """Returns >= 0 if outside inner circle (required to be in moon)."""
         diff = y - inner_center
         return np.dot(diff, diff) - inner_radius**2
 

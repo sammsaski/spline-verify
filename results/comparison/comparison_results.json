@@ -6,32 +6,15 @@
     "spline_min": -0.011513529743825912,
     "spline_error": 0.36485239734576946,
     "spline_lower": -0.3763659270895954,
-    "spline_time": 0.23968755616806448,
+    "spline_time": 0.23866089596413076,
     "spline_status": "UNSAFE",
     "ms_lower": 0.0006187451047385828,
     "ms_upper": 0.00011262417212565268,
-    "ms_time": 0.34987967601045966,
+    "ms_time": 0.34969405294395983,
     "ms_status": "optimal",
     "gap": -0.012132274848564495,
     "relative_gap": -12132.274848564495,
-    "speedup": 1.4597323348948934
-  },
-  {
-    "problem_name": "moon_2d",
-    "n_dims": 2,
-    "time_horizon": 2.0,
-    "spline_min": -0.012038595722164125,
-    "spline_error": 0.36398865533404756,
-    "spline_lower": -0.3760272510562117,
-    "spline_time": 0.2325978591106832,
-    "spline_status": "UNSAFE",
-    "ms_lower": 0.0006187451047385828,
-    "ms_upper": 0.00011262417212565268,
-    "ms_time": 0.3553523968439549,
-    "ms_status": "optimal",
-    "gap": -0.012657340826902707,
-    "relative_gap": -12657.340826902708,
-    "speedup": 1.5277543748795133
+    "speedup": 1.4652339736314266
   },
   {
     "problem_name": "linear_decay_2d",
@@ -40,15 +23,15 @@
     "spline_min": 0.0364918276129904,
     "spline_error": 0.013360048659938522,
     "spline_lower": 0.02313177895305188,
-    "spline_time": 0.1446403139270842,
+    "spline_time": 0.14401054219342768,
     "spline_status": "SAFE",
     "ms_lower": 0.06391697060197976,
     "ms_upper": 0.06891870171626668,
-    "ms_time": 0.4469160339795053,
+    "ms_time": 0.45896428590640426,
     "ms_status": "optimal",
     "gap": -0.027425142988989362,
     "relative_gap": -0.7515420515476329,
-    "speedup": 3.0898441924345086
+    "speedup": 3.1870186648554286
   },
   {
     "problem_name": "rotation_2d",
@@ -57,14 +40,14 @@
     "spline_min": 0.0,
     "spline_error": 0.0,
     "spline_lower": 0.0,
-    "spline_time": 0.4482915399130434,
+    "spline_time": 0.45733231981284916,
     "spline_status": "UNSAFE",
     "ms_lower": 0,
     "ms_upper": 0,
-    "ms_time": 0.9680008660070598,
+    "ms_time": 0.9769660721067339,
     "ms_status": "optimal",
     "gap": 0.0,
     "relative_gap": 0.0,
-    "speedup": 2.159311028253681
+    "speedup": 2.136227923944957
   }
 ]

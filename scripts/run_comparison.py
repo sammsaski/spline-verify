@@ -34,9 +34,11 @@ from pathlib import Path
 from typing import Optional
 
 import numpy as np
+from scipy.integrate import solve_ivp
 import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
+from matplotlib.patches import Wedge
 
 # Import Miller-Sznaier module (problem definitions always work)
 from miller_sznaier.problem import (
@@ -472,6 +474,208 @@ def plot_gap_analysis(
     return fig
 
 
+def plot_sampling_comparison(
+    problem: UnsafeSupport,
+    problem_type: str = 'flow',
+    n_ball_trajectories: int = 8,
+    save_path: Path | None = None,
+) -> plt.Figure:
+    """Create visualization comparing M-S (ball) vs Spline-verify (box) sampling.
+
+    Color scheme:
+    - Blue: M-S method (ball initial set + trajectories from ball)
+    - Yellow: Spline-verify method (box initial set + trajectories from corners)
+    - Green overlap: Where both methods sample (ball contained in box)
+    - Red: Unsafe set
+
+    Args:
+        problem: UnsafeSupport problem definition
+        problem_type: 'flow' for half-disk unsafe set, 'moon' for moon shape
+        n_ball_trajectories: Number of trajectories to sample from ball interior
+        save_path: Optional path to save figure
+    """
+    fig, ax = plt.subplots(1, 1, figsize=(10, 8))
+
+    theta = np.linspace(0, 2*np.pi, 100)
+
+    # Plot bounding box (spline-verify) - YELLOW, draw first so ball overlaps
+    box_lower = problem.initial_center - problem.initial_radius
+    box_upper = problem.initial_center + problem.initial_radius
+    box_x = [box_lower[0], box_upper[0], box_upper[0], box_lower[0], box_lower[0]]
+    box_y = [box_lower[1], box_lower[1], box_upper[1], box_upper[1], box_lower[1]]
+    ax.fill(box_x, box_y, color='yellow', alpha=0.4, zorder=3, edgecolor='none')
+    ax.plot(box_x, box_y, color='goldenrod', linewidth=2.5,
+            linestyle='--', label='Spline-verify initial set (box)', zorder=10)
+
+    # Plot initial ball (M-S) - BLUE, on top of box
+    ball_x = problem.initial_center[0] + problem.initial_radius * np.cos(theta)
+    ball_y = problem.initial_center[1] + problem.initial_radius * np.sin(theta)
+    ax.fill(ball_x, ball_y, color='blue', alpha=0.2, zorder=4, edgecolor='none')
+    ax.plot(ball_x, ball_y, 'b-', linewidth=2.5, label='M-S initial set (ball)', zorder=10)
+
+    # Plot unsafe set based on problem type
+    if problem_type == 'flow':
+        # Half-disk for flow_2d
+        # From MATLAB: cos(5π/4)*(y1-c1) + sin(5π/4)*(y2-c2) >= 0
+        # This selects the lower-left region (135° to 315°)
+        wedge = Wedge(problem.unsafe_center, problem.unsafe_radius,
+                     135, 315,
+                     facecolor='red', alpha=0.25, edgecolor='none',
+                     label='Unsafe set (half-disk)')
+        ax.add_patch(wedge)
+
+        # Draw the edge separately for better visibility
+        # Arc from 135° to 315°
+        arc_theta = np.linspace(135 * np.pi / 180, 315 * np.pi / 180, 100)
+        arc_x = problem.unsafe_center[0] + problem.unsafe_radius * np.cos(arc_theta)
+        arc_y = problem.unsafe_center[1] + problem.unsafe_radius * np.sin(arc_theta)
+        ax.plot(arc_x, arc_y, 'r-', linewidth=2.5)
+        # Straight edge (diameter)
+        start_pt = problem.unsafe_center + problem.unsafe_radius * np.array([np.cos(135 * np.pi / 180), np.sin(135 * np.pi / 180)])
+        end_pt = problem.unsafe_center + problem.unsafe_radius * np.array([np.cos(315 * np.pi / 180), np.sin(315 * np.pi / 180)])
+        ax.plot([start_pt[0], end_pt[0]], [start_pt[1], end_pt[1]], 'r-', linewidth=2.5)
+    elif problem_type == 'moon':
+        # Moon shape from MATLAB flow_dist_moon.m
+        h_in = 0.4
+        h_out = 1.0
+        moon_center = np.array([0.4, -0.4])
+        moon_theta = -np.pi / 10
+        moon_scale = 0.8
+
+        moon_rot = np.array([
+            [np.cos(moon_theta), -np.sin(moon_theta)],
+            [np.sin(moon_theta), np.cos(moon_theta)]
+        ])
+
+        c_in = np.array([0.0, 0.5 * (1.0/h_in - h_in)])
+        r_in = 0.5 * (1.0/h_in + h_in)
+        c_out = np.array([0.0, 0.5 * (1.0/h_out - h_out)])
+        r_out = 0.5 * (1.0/h_out + h_out)
+
+        inner_center = moon_rot @ c_in * moon_scale + moon_center
+        outer_center = moon_rot @ c_out * moon_scale + moon_center
+        inner_radius = moon_scale * r_in
+        outer_radius = moon_scale * r_out
+
+        # Create crescent by sampling points in the moon region
+        # Generate a grid and check which points are in the crescent
+        from matplotlib.patches import Polygon
+
+        # Sample points along the crescent boundary
+        n_pts = 200
+        theta_fine = np.linspace(0, 2*np.pi, n_pts)
+
+        # Get points on outer circle that are outside inner circle
+        outer_arc = []
+        for t in theta_fine:
+            pt = outer_center + outer_radius * np.array([np.cos(t), np.sin(t)])
+            if np.linalg.norm(pt - inner_center) >= inner_radius:
+                outer_arc.append(pt)
+
+        # Get points on inner circle that are inside outer circle
+        inner_arc = []
+        for t in theta_fine:
+            pt = inner_center + inner_radius * np.array([np.cos(t), np.sin(t)])
+            if np.linalg.norm(pt - outer_center) <= outer_radius:
+                inner_arc.append(pt)
+
+        # Combine to form crescent polygon (outer arc + reversed inner arc)
+        if outer_arc and inner_arc:
+            outer_arc = np.array(outer_arc)
+            inner_arc = np.array(inner_arc)
+            # Reverse inner arc to trace boundary correctly
+            crescent_pts = np.vstack([outer_arc, inner_arc[::-1]])
+            crescent = Polygon(crescent_pts, facecolor='red', alpha=0.25,
+                              edgecolor='none', label='Unsafe set (moon)')
+            ax.add_patch(crescent)
+
+            # Draw edges
+            ax.plot(outer_arc[:, 0], outer_arc[:, 1], 'r-', linewidth=2.5)
+            ax.plot(inner_arc[:, 0], inner_arc[:, 1], 'r-', linewidth=2.5)
+
+    # Sample and plot trajectories from INSIDE the ball - BLUE
+    np.random.seed(123)
+    ball_traj_plotted = False
+    for i in range(n_ball_trajectories):
+        angle = 2 * np.pi * i / n_ball_trajectories
+        r = problem.initial_radius * 0.7
+        x0 = problem.initial_center + r * np.array([np.cos(angle), np.sin(angle)])
+
+        sol = solve_ivp(
+            problem.dynamics, [0, problem.time_horizon], x0,
+            t_eval=np.linspace(0, problem.time_horizon, 200),
+            method='RK45'
+        )
+        if sol.success:
+            label = 'Trajectories from ball (M-S)' if not ball_traj_plotted else None
+            ax.plot(sol.y[0], sol.y[1], 'b-', linewidth=1.2, alpha=0.6, label=label)
+            ax.plot(x0[0], x0[1], 'o', color='blue', markersize=6, alpha=0.7)
+            ball_traj_plotted = True
+
+    # Plot trajectories from box corners (outside ball) - YELLOW/GOLD
+    corners = [
+        np.array([box_lower[0], box_lower[1]]),  # bottom-left
+        np.array([box_lower[0], box_upper[1]]),  # top-left
+        np.array([box_upper[0], box_lower[1]]),  # bottom-right
+        np.array([box_upper[0], box_upper[1]]),  # top-right
+    ]
+
+    corner_traj_plotted = False
+    for corner in corners:
+        # Check if corner is outside the ball
+        dist_from_center = np.linalg.norm(corner - problem.initial_center)
+        if dist_from_center > problem.initial_radius:
+            sol = solve_ivp(
+                problem.dynamics, [0, problem.time_horizon], corner,
+                t_eval=np.linspace(0, problem.time_horizon, 200),
+                method='RK45'
+            )
+            if sol.success:
+                label = 'Trajectories from box corners (Spline-verify)' if not corner_traj_plotted else None
+                ax.plot(sol.y[0], sol.y[1], color='goldenrod', linewidth=2, alpha=0.85, label=label)
+                ax.plot(corner[0], corner[1], 's', color='goldenrod', markersize=10,
+                       markeredgecolor='black', markeredgewidth=1)
+                corner_traj_plotted = True
+
+    # Labels and formatting
+    ax.set_xlabel('$x_1$', fontsize=14)
+    ax.set_ylabel('$x_2$', fontsize=14)
+    title = 'Flow System' if problem_type == 'flow' else 'Moon System'
+    ax.set_title(f'{title}: M-S (ball) vs Spline-verify (box) Sampling', fontsize=14, fontweight='bold')
+
+    # Legend outside plot
+    ax.legend(loc='upper left', bbox_to_anchor=(1.02, 1.0), fontsize=10, framealpha=0.95)
+
+    ax.grid(True, alpha=0.3)
+    ax.set_aspect('equal')
+
+    # Adjust axis limits to reduce unused space
+    # Get current data limits and add small padding
+    ax.autoscale(enable=True, axis='both', tight=True)
+    xlim = ax.get_xlim()
+    ylim = ax.get_ylim()
+    x_range = xlim[1] - xlim[0]
+    y_range = ylim[1] - ylim[0]
+    padding = 0.05  # 5% padding
+    ax.set_xlim(xlim[0] - padding * x_range, xlim[1] + padding * x_range)
+    ax.set_ylim(ylim[0] - padding * y_range, ylim[1] + padding * y_range)
+
+    # For moon figure, cap y-axis at 0.5 since there's no data above that
+    if problem_type == 'moon':
+        current_ylim = ax.get_ylim()
+        ax.set_ylim(current_ylim[0], min(current_ylim[1], 0.5))
+
+    # Adjust layout for legend
+    plt.tight_layout()
+    fig.subplots_adjust(right=0.62)
+
+    if save_path:
+        fig.savefig(save_path, dpi=150, bbox_inches='tight')
+        print(f"Saved {problem_type} sampling comparison to {save_path}")
+
+    return fig
+
+
 def print_summary_table(results: list[ExtendedComparisonResult]) -> None:
     """Print a summary table of all results."""
     print("\n" + "=" * 90)
@@ -603,6 +807,23 @@ def main():
         save_results(all_results, outdir / 'comparison_results.json')
         plot_bounds_comparison(all_results, save_path=outdir / 'bounds_comparison.png')
         plot_gap_analysis(all_results, save_path=outdir / 'gap_analysis.png')
+
+        # Sampling comparison figures
+        flow_full = create_flow_system(time_horizon=5.0)
+        plot_sampling_comparison(
+            flow_full,
+            problem_type='flow',
+            n_ball_trajectories=10,
+            save_path=outdir / 'flow_2d_sampling_comparison.png'
+        )
+
+        moon_full = create_moon_system(time_horizon=5.0)
+        plot_sampling_comparison(
+            moon_full,
+            problem_type='moon',
+            n_ball_trajectories=10,
+            save_path=outdir / 'moon_2d_sampling_comparison.png'
+        )
 
         if not args.quick and sample_results:
             plot_convergence(
