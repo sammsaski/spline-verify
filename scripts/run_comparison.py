@@ -515,24 +515,35 @@ def plot_sampling_comparison(
 
     # Plot unsafe set based on problem type
     if problem_type == 'flow':
-        # Half-disk for flow_2d
-        # From MATLAB: cos(5π/4)*(y1-c1) + sin(5π/4)*(y2-c2) >= 0
-        # This selects the lower-left region (135° to 315°)
+        # Half-disk for flow system
+        # Get angle from problem or default to 5π/4
+        half_angle = getattr(problem, 'half_space_angle', None) or (5 * np.pi / 4)
+
+        # Convert half-space angle to wedge angles
+        # The half-space constraint cos(θ)*(y1-c1) + sin(θ)*(y2-c2) >= 0
+        # selects the half-plane in the direction of angle θ
+        # Wedge needs start and end angles (in degrees)
+        # The selected region is from (θ - 90°) to (θ + 90°)
+        angle_deg = np.degrees(half_angle)
+        wedge_start = angle_deg - 90
+        wedge_end = angle_deg + 90
+
         wedge = Wedge(problem.unsafe_center, problem.unsafe_radius,
-                     135, 315,
+                     wedge_start, wedge_end,
                      facecolor='red', alpha=0.25, edgecolor='none',
                      label='Unsafe set (half-disk)')
         ax.add_patch(wedge)
 
         # Draw the edge separately for better visibility
-        # Arc from 135° to 315°
-        arc_theta = np.linspace(135 * np.pi / 180, 315 * np.pi / 180, 100)
+        arc_start_rad = np.radians(wedge_start)
+        arc_end_rad = np.radians(wedge_end)
+        arc_theta = np.linspace(arc_start_rad, arc_end_rad, 100)
         arc_x = problem.unsafe_center[0] + problem.unsafe_radius * np.cos(arc_theta)
         arc_y = problem.unsafe_center[1] + problem.unsafe_radius * np.sin(arc_theta)
         ax.plot(arc_x, arc_y, 'r-', linewidth=2.5)
         # Straight edge (diameter)
-        start_pt = problem.unsafe_center + problem.unsafe_radius * np.array([np.cos(135 * np.pi / 180), np.sin(135 * np.pi / 180)])
-        end_pt = problem.unsafe_center + problem.unsafe_radius * np.array([np.cos(315 * np.pi / 180), np.sin(315 * np.pi / 180)])
+        start_pt = problem.unsafe_center + problem.unsafe_radius * np.array([np.cos(arc_start_rad), np.sin(arc_start_rad)])
+        end_pt = problem.unsafe_center + problem.unsafe_radius * np.array([np.cos(arc_end_rad), np.sin(arc_end_rad)])
         ax.plot([start_pt[0], end_pt[0]], [start_pt[1], end_pt[1]], 'r-', linewidth=2.5)
     elif problem_type == 'moon':
         # Moon shape from MATLAB flow_dist_moon.m
@@ -676,6 +687,294 @@ def plot_sampling_comparison(
     return fig
 
 
+def plot_distance_function(
+    problem: UnsafeSupport,
+    problem_name: str,
+    n_samples: int = 200,
+    save_path: Path | None = None,
+) -> plt.Figure:
+    """Plot the distance function F_T(x0) over the initial set.
+
+    Creates a visualization showing:
+    - Contour plot of minimum distance to unsafe set from each initial condition
+    - Comparison between spline-verify (computed) and M-S bounds
+
+    Args:
+        problem: UnsafeSupport problem definition
+        problem_name: Name for the title
+        n_samples: Number of samples for computing distance function
+        save_path: Optional path to save figure
+    """
+    from spline_verify.dynamics import ODEDynamics
+    from spline_verify.geometry import Ball, LevelSet
+
+    fig, ax = plt.subplots(1, 1, figsize=(10, 8))
+
+    # Create grid over initial set
+    center = problem.initial_center
+    radius = problem.initial_radius
+    n_grid = 50
+
+    x1_range = np.linspace(center[0] - radius, center[0] + radius, n_grid)
+    x2_range = np.linspace(center[1] - radius, center[1] + radius, n_grid)
+    X1, X2 = np.meshgrid(x1_range, x2_range)
+
+    # Compute distance function at each grid point
+    F_T = np.full_like(X1, np.nan)
+
+    # Create dynamics
+    dynamics = ODEDynamics(f=problem.dynamics, _n_dims=problem.n_vars)
+
+    # Create unsafe set level function
+    def unsafe_distance(x):
+        """Compute distance from point x to unsafe set."""
+        x = np.asarray(x)
+        # Distance to ball boundary
+        dist_to_center = np.linalg.norm(x - problem.unsafe_center)
+        ball_dist = dist_to_center - problem.unsafe_radius
+
+        if ball_dist > 0:
+            # Outside ball
+            return ball_dist
+
+        # Inside ball - check constraints
+        for g in problem.unsafe_constraints:
+            constraint_val = g(x)
+            if constraint_val < 0:
+                # Outside constraint region
+                return -constraint_val
+
+        # Inside unsafe set
+        return ball_dist  # Negative
+
+    print(f"  Computing distance function for {problem_name}...")
+    for i in range(n_grid):
+        for j in range(n_grid):
+            x0 = np.array([X1[i, j], X2[i, j]])
+
+            # Check if inside initial ball
+            if np.linalg.norm(x0 - center) > radius:
+                continue
+
+            # Simulate trajectory
+            try:
+                sol = solve_ivp(
+                    problem.dynamics, [0, problem.time_horizon], x0,
+                    t_eval=np.linspace(0, problem.time_horizon, 200),
+                    method='RK45'
+                )
+                if sol.success:
+                    # Compute minimum distance along trajectory
+                    min_dist = np.inf
+                    for k in range(len(sol.t)):
+                        pt = sol.y[:, k]
+                        d = unsafe_distance(pt)
+                        if d < min_dist:
+                            min_dist = d
+                    F_T[i, j] = min_dist
+            except Exception:
+                pass
+
+    # Plot contour
+    levels = np.linspace(np.nanmin(F_T), np.nanmax(F_T), 20)
+    if np.nanmin(F_T) < 0:
+        # Include zero level for unsafe boundary
+        levels = np.sort(np.unique(np.concatenate([levels, [0]])))
+
+    cs = ax.contourf(X1, X2, F_T, levels=levels, cmap='RdYlGn', alpha=0.8)
+    cbar = plt.colorbar(cs, ax=ax, label='Min Distance to Unsafe Set')
+
+    # Add zero contour if exists
+    if np.nanmin(F_T) < 0 and np.nanmax(F_T) > 0:
+        ax.contour(X1, X2, F_T, levels=[0], colors='black', linewidths=2)
+
+    # Plot initial set boundary
+    theta = np.linspace(0, 2*np.pi, 100)
+    init_x = center[0] + radius * np.cos(theta)
+    init_y = center[1] + radius * np.sin(theta)
+    ax.plot(init_x, init_y, 'b-', linewidth=2.5, label='Initial set')
+
+    # Plot unsafe set
+    half_angle = getattr(problem, 'half_space_angle', None) or (5 * np.pi / 4)
+    angle_deg = np.degrees(half_angle)
+    wedge_start = angle_deg - 90
+    wedge_end = angle_deg + 90
+
+    wedge = Wedge(problem.unsafe_center, problem.unsafe_radius,
+                 wedge_start, wedge_end,
+                 facecolor='red', alpha=0.5, edgecolor='red', linewidth=2,
+                 label='Unsafe set')
+    ax.add_patch(wedge)
+
+    # Labels
+    ax.set_xlabel('$x_1$', fontsize=14)
+    ax.set_ylabel('$x_2$', fontsize=14)
+    ax.set_title(f'{problem_name}: Distance Function $F_T(x_0)$', fontsize=14, fontweight='bold')
+    ax.legend(loc='upper right', fontsize=10)
+    ax.set_aspect('equal')
+    ax.grid(True, alpha=0.3)
+
+    plt.tight_layout()
+
+    if save_path:
+        fig.savefig(save_path, dpi=150, bbox_inches='tight')
+        print(f"  Saved distance function plot to {save_path}")
+
+    return fig
+
+
+def plot_distance_function_moon(
+    problem: UnsafeSupport,
+    problem_name: str,
+    save_path: Path | None = None,
+) -> plt.Figure:
+    """Plot the distance function F_T(x0) for moon system.
+
+    Args:
+        problem: UnsafeSupport problem definition (moon)
+        problem_name: Name for the title
+        save_path: Optional path to save figure
+    """
+    from matplotlib.patches import Polygon
+
+    fig, ax = plt.subplots(1, 1, figsize=(10, 8))
+
+    # Create grid over initial set
+    center = problem.initial_center
+    radius = problem.initial_radius
+    n_grid = 50
+
+    x1_range = np.linspace(center[0] - radius, center[0] + radius, n_grid)
+    x2_range = np.linspace(center[1] - radius, center[1] + radius, n_grid)
+    X1, X2 = np.meshgrid(x1_range, x2_range)
+
+    # Moon parameters
+    h_in = 0.4
+    h_out = 1.0
+    moon_center = np.array([0.4, -0.4])
+    moon_theta = -np.pi / 10
+    moon_scale = 0.8
+
+    moon_rot = np.array([
+        [np.cos(moon_theta), -np.sin(moon_theta)],
+        [np.sin(moon_theta), np.cos(moon_theta)]
+    ])
+
+    c_in = np.array([0.0, 0.5 * (1.0/h_in - h_in)])
+    r_in = 0.5 * (1.0/h_in + h_in)
+    c_out = np.array([0.0, 0.5 * (1.0/h_out - h_out)])
+    r_out = 0.5 * (1.0/h_out + h_out)
+
+    inner_center = moon_rot @ c_in * moon_scale + moon_center
+    outer_center = moon_rot @ c_out * moon_scale + moon_center
+    inner_radius = moon_scale * r_in
+    outer_radius = moon_scale * r_out
+
+    def moon_distance(x):
+        """Compute distance from point x to moon unsafe set."""
+        x = np.asarray(x)
+        # Distance to outer circle
+        dist_to_outer = np.linalg.norm(x - outer_center) - outer_radius
+        # Distance to inner circle (negative means inside)
+        dist_to_inner = np.linalg.norm(x - inner_center) - inner_radius
+
+        if dist_to_outer > 0:
+            # Outside outer circle
+            return dist_to_outer
+        elif dist_to_inner < 0:
+            # Inside inner circle (excluded from moon)
+            return -dist_to_inner
+        else:
+            # Inside moon (outer but not inner)
+            return min(dist_to_outer, 0)  # Negative
+
+    # Compute distance function
+    F_T = np.full_like(X1, np.nan)
+
+    print(f"  Computing distance function for {problem_name}...")
+    for i in range(n_grid):
+        for j in range(n_grid):
+            x0 = np.array([X1[i, j], X2[i, j]])
+
+            # Check if inside initial ball
+            if np.linalg.norm(x0 - center) > radius:
+                continue
+
+            # Simulate trajectory
+            try:
+                sol = solve_ivp(
+                    problem.dynamics, [0, problem.time_horizon], x0,
+                    t_eval=np.linspace(0, problem.time_horizon, 200),
+                    method='RK45'
+                )
+                if sol.success:
+                    min_dist = np.inf
+                    for k in range(len(sol.t)):
+                        pt = sol.y[:, k]
+                        d = moon_distance(pt)
+                        if d < min_dist:
+                            min_dist = d
+                    F_T[i, j] = min_dist
+            except Exception:
+                pass
+
+    # Plot contour
+    levels = np.linspace(np.nanmin(F_T), np.nanmax(F_T), 20)
+    if np.nanmin(F_T) < 0 and np.nanmax(F_T) > 0:
+        levels = np.sort(np.unique(np.concatenate([levels, [0]])))
+
+    cs = ax.contourf(X1, X2, F_T, levels=levels, cmap='RdYlGn', alpha=0.8)
+    plt.colorbar(cs, ax=ax, label='Min Distance to Unsafe Set')
+
+    if np.nanmin(F_T) < 0 and np.nanmax(F_T) > 0:
+        ax.contour(X1, X2, F_T, levels=[0], colors='black', linewidths=2)
+
+    # Plot initial set boundary
+    theta = np.linspace(0, 2*np.pi, 100)
+    init_x = center[0] + radius * np.cos(theta)
+    init_y = center[1] + radius * np.sin(theta)
+    ax.plot(init_x, init_y, 'b-', linewidth=2.5, label='Initial set')
+
+    # Plot moon unsafe set
+    n_pts = 200
+    theta_fine = np.linspace(0, 2*np.pi, n_pts)
+
+    outer_arc = []
+    for t in theta_fine:
+        pt = outer_center + outer_radius * np.array([np.cos(t), np.sin(t)])
+        if np.linalg.norm(pt - inner_center) >= inner_radius:
+            outer_arc.append(pt)
+
+    inner_arc = []
+    for t in theta_fine:
+        pt = inner_center + inner_radius * np.array([np.cos(t), np.sin(t)])
+        if np.linalg.norm(pt - outer_center) <= outer_radius:
+            inner_arc.append(pt)
+
+    if outer_arc and inner_arc:
+        outer_arc = np.array(outer_arc)
+        inner_arc = np.array(inner_arc)
+        crescent_pts = np.vstack([outer_arc, inner_arc[::-1]])
+        crescent = Polygon(crescent_pts, facecolor='red', alpha=0.5,
+                          edgecolor='red', linewidth=2, label='Unsafe set (moon)')
+        ax.add_patch(crescent)
+
+    ax.set_xlabel('$x_1$', fontsize=14)
+    ax.set_ylabel('$x_2$', fontsize=14)
+    ax.set_title(f'{problem_name}: Distance Function $F_T(x_0)$', fontsize=14, fontweight='bold')
+    ax.legend(loc='upper right', fontsize=10)
+    ax.set_aspect('equal')
+    ax.grid(True, alpha=0.3)
+
+    plt.tight_layout()
+
+    if save_path:
+        fig.savefig(save_path, dpi=150, bbox_inches='tight')
+        print(f"  Saved distance function plot to {save_path}")
+
+    return fig
+
+
 def print_summary_table(results: list[ExtendedComparisonResult]) -> None:
     """Print a summary table of all results."""
     print("\n" + "=" * 90)
@@ -808,22 +1107,58 @@ def main():
         plot_bounds_comparison(all_results, save_path=outdir / 'bounds_comparison.png')
         plot_gap_analysis(all_results, save_path=outdir / 'gap_analysis.png')
 
-        # Sampling comparison figures
-        flow_full = create_flow_system(time_horizon=5.0)
-        plot_sampling_comparison(
-            flow_full,
-            problem_type='flow',
-            n_ball_trajectories=10,
-            save_path=outdir / 'flow_2d_sampling_comparison.png'
-        )
+        # Flow system variants with different half-space angles
+        flow_variants = [
+            ('flow_dist_5pi_4', 5 * np.pi / 4, 'Flow (θ=5π/4, lower-left)'),
+            ('flow_dist_3pi_2', 3 * np.pi / 2, 'Flow (θ=3π/2, bottom)'),
+            ('flow_dist_7pi_4', 7 * np.pi / 4, 'Flow (θ=7π/4, lower-right)'),
+        ]
+
+        print("\n" + "-" * 60)
+        print("Generating Flow Variant Figures")
+        print("-" * 60)
+
+        for variant_name, angle, description in flow_variants:
+            print(f"\n  {description}...")
+            flow_variant = create_flow_system(time_horizon=5.0, half_space_angle=angle)
+
+            # Sampling comparison figure
+            plot_sampling_comparison(
+                flow_variant,
+                problem_type='flow',
+                n_ball_trajectories=10,
+                save_path=outdir / f'{variant_name}_sampling_comparison.png'
+            )
+
+            # Distance function figure
+            plot_distance_function(
+                flow_variant,
+                problem_name=description,
+                save_path=outdir / f'{variant_name}_distance_function.png'
+            )
+            plt.close('all')
+
+        # Moon system
+        print("\n" + "-" * 60)
+        print("Generating Moon System Figures")
+        print("-" * 60)
 
         moon_full = create_moon_system(time_horizon=5.0)
         plot_sampling_comparison(
             moon_full,
             problem_type='moon',
             n_ball_trajectories=10,
-            save_path=outdir / 'moon_2d_sampling_comparison.png'
+            save_path=outdir / 'moon_sampling_comparison.png'
         )
+
+        # Distance function for moon (need to handle differently)
+        print("\n  Moon distance function...")
+        plot_distance_function_moon(
+            moon_full,
+            problem_name='Moon System',
+            save_path=outdir / 'moon_distance_function.png'
+        )
+        plt.close('all')
 
         if not args.quick and sample_results:
             plot_convergence(

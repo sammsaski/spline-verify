@@ -58,6 +58,9 @@ class UnsafeSupport:
     # Distance function
     distance_type: str = 'squared_euclidean'
 
+    # Half-space angle for flow system variants (optional)
+    half_space_angle: Optional[float] = None
+
     def distance(self, x: np.ndarray, y: np.ndarray) -> float:
         """Compute distance between trajectory point x and unsafe point y."""
         diff = x - y
@@ -99,6 +102,7 @@ def create_flow_system(
     unsafe_center: np.ndarray = None,
     unsafe_radius: float = 0.5,
     time_horizon: float = 5.0,
+    half_space_angle: float = 5 * np.pi / 4,
 ) -> UnsafeSupport:
     """Create the Flow system from Miller & Sznaier's paper (Eq. 5, Fig. 5).
 
@@ -108,8 +112,13 @@ def create_flow_system(
 
     Default initial set: Circle centered at (1.5, 0) with radius 0.4
     Default unsafe set: Half-disk at (0, -0.7) with radius 0.5
-        The half-plane constraint is: cos(5π/4)*x1 + sin(5π/4)*x2 <= 0
-        This keeps the lower-left half of the ball.
+        The half-plane constraint is: cos(θ)*(y1-c1) + sin(θ)*(y2-c2) >= 0
+        where θ is the half_space_angle parameter.
+
+    Common angle variants from Miller & Sznaier experiments:
+        - 5π/4 (225°): Lower-left half-disk (default) - SAFE, dist ≈ 0.318
+        - 3π/2 (270°): Bottom half-disk - SAFE, dist ≈ 0.19
+        - 7π/4 (315°): Lower-right half-disk - UNSAFE (trajectories enter)
 
     Args:
         initial_center: Center of initial ball. Default: [1.5, 0]
@@ -117,6 +126,7 @@ def create_flow_system(
         unsafe_center: Center of unsafe ball. Default: [0, -0.7]
         unsafe_radius: Radius of unsafe ball.
         time_horizon: Time horizon T.
+        half_space_angle: Angle θ for half-plane constraint. Default: 5π/4.
 
     Returns:
         UnsafeSupport problem specification.
@@ -135,14 +145,7 @@ def create_flow_system(
 
     # Half-plane constraint for unsafe set (half-disk)
     # From MATLAB: c2f = w_c(1)*(y(1) - Cu(1)) + w_c(2) * (y(2) - Cu(2)) >= 0
-    # where w_c = [cos(theta_c); sin(theta_c)] and theta_c = 5*pi/4
-    #
-    # This means: cos(5π/4)*(y1-c1) + sin(5π/4)*(y2-c2) >= 0
-    # = -0.707*(y1-c1) - 0.707*(y2-c2) >= 0
-    # = -(y1-c1) - (y2-c2) >= 0
-    # = y1 + y2 <= c1 + c2 = 0 + (-0.7) = -0.7
-    # This selects the lower-left region (below the line y1 + y2 = -0.7)
-    half_space_angle = 5 * np.pi / 4  # 225°
+    # where w_c = [cos(theta_c); sin(theta_c)]
     cos_theta = np.cos(half_space_angle)
     sin_theta = np.sin(half_space_angle)
 
@@ -152,7 +155,7 @@ def create_flow_system(
         """Returns >= 0 if point is in the half-disk (satisfies half-plane constraint).
 
         The half-plane constraint from MATLAB is:
-            cos(5π/4)*(y1-c1) + sin(5π/4)*(y2-c2) >= 0
+            cos(θ)*(y1-c1) + sin(θ)*(y2-c2) >= 0
         For a point to be IN the unsafe set, this must be satisfied.
         Returns >= 0 if IN the unsafe half-disk, < 0 if OUT.
         """
@@ -172,6 +175,7 @@ def create_flow_system(
         unsafe_radius=unsafe_radius,
         unsafe_constraints=unsafe_constraints,
         distance_type='squared_euclidean',
+        half_space_angle=half_space_angle,
     )
 
 
