@@ -360,13 +360,21 @@ def figure_03_why_approximate() -> plt.Figure:
 
     ax2.view_init(elev=25, azim=-60)
 
-    # Add arrow annotation between panels
-    fig.text(0.5, 0.5, '→', fontsize=40, ha='center', va='center',
+    # Adjust layout to create gap between panels for arrow
+    plt.tight_layout()
+    fig.subplots_adjust(wspace=0.3)  # Add space between subplots
+
+    # Get the positions of the two axes to find the center of the gap
+    pos1 = ax1.get_position()  # Left panel
+    pos2 = ax2.get_position()  # Right panel
+    gap_center_x = (pos1.x1 + pos2.x0) / 2  # Center of gap between panels
+
+    # Add arrow annotation between panels (centered in the gap)
+    fig.text(gap_center_x, 0.5, '→', fontsize=40, ha='center', va='center',
              fontweight='bold', color=COLORS['trajectory'])
-    fig.text(0.5, 0.4, 'Sample + Fit Spline\n+ Minimize', fontsize=FONTSIZE['annotation'] + 1,
+    fig.text(gap_center_x, 0.38, 'Sample + Fit Spline\n+ Minimize', fontsize=FONTSIZE['annotation'] + 1,
              ha='center', va='center', style='italic')
 
-    plt.tight_layout()
     return fig
 
 

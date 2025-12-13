@@ -654,8 +654,9 @@ def plot_sampling_comparison(
     title = 'Flow System' if problem_type == 'flow' else 'Moon System'
     ax.set_title(f'{title}: M-S (ball) vs Spline-verify (box) Sampling', fontsize=14, fontweight='bold')
 
-    # Legend outside plot
-    ax.legend(loc='upper left', bbox_to_anchor=(1.02, 1.0), fontsize=10, framealpha=0.95)
+    # Legend above plot (horizontal layout)
+    ax.legend(loc='upper center', bbox_to_anchor=(0.5, -0.12), fontsize=10,
+              framealpha=0.95, ncol=3)
 
     ax.grid(True, alpha=0.3)
     ax.set_aspect('equal')
@@ -678,7 +679,6 @@ def plot_sampling_comparison(
 
     # Adjust layout for legend
     plt.tight_layout()
-    fig.subplots_adjust(right=0.62)
 
     if save_path:
         fig.savefig(save_path, dpi=150, bbox_inches='tight')
